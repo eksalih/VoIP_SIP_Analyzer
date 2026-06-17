@@ -3,6 +3,7 @@ import { api } from "../utils/api";
 import { formatDateTime, formatDuration, shortCallId } from "../utils/format";
 import StatusBadge from "../components/shared/StatusBadge";
 import UploadPanel from "../components/calls/UploadPanel";
+import ConfirmDialog from "../components/shared/ConfirmDialog";
 import type { Call, CallStatus, UploadResult } from "../types";
 
 interface Props {
@@ -17,6 +18,8 @@ export default function Dashboard({ onSelectCall }: Props) {
   const [filter, setFilter] = useState<CallStatus | "ALL">("ALL");
   const [search, setSearch] = useState("");
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearedBanner, setClearedBanner] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -38,17 +41,43 @@ export default function Dashboard({ onSelectCall }: Props) {
 
   const handleUpload = async (result: UploadResult) => {
     setUploadResult(result);
+    setClearedBanner(null);
+    await load();
+  };
+
+  const handleClearAll = async () => {
+    const result = await api.clearAllData();
+    setClearedBanner(
+      `Cleared ${result.deleted.calls} call(s), ${result.deleted.events} event(s), ${result.deleted.test_runs} test run(s).`
+    );
+    setUploadResult(null);
     await load();
   };
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Call Log</h1>
-        <p className="page-subtitle">Upload a PCAP capture to analyze SIP calls</p>
+      <div className="page-header page-header-row">
+        <div>
+          <h1 className="page-title">Call Log</h1>
+          <p className="page-subtitle">Upload a PCAP capture to analyze SIP calls</p>
+        </div>
+        <button
+          className="clear-data-btn"
+          onClick={() => setShowClearConfirm(true)}
+          disabled={calls.length === 0 && !uploadResult}
+          title="Permanently delete all calls, events, and test runs"
+        >
+          🗑 Clear All Data
+        </button>
       </div>
 
       <UploadPanel onSuccess={handleUpload} />
+
+      {clearedBanner && (
+        <div className="cleared-banner">
+          <strong>✓ Cleared:</strong> {clearedBanner}
+        </div>
+      )}
 
       {uploadResult && uploadResult.status === "ok" && (
         <div className="upload-result-banner">
@@ -133,6 +162,18 @@ export default function Dashboard({ onSelectCall }: Props) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {showClearConfirm && (
+        <ConfirmDialog
+          title="Clear all call data?"
+          message={`This will permanently delete all ${calls.length} call(s), their SIP events, and replay test history. This cannot be undone. Use this before starting a new test session.`}
+          confirmLabel="Clear Everything"
+          cancelLabel="Cancel"
+          danger
+          onConfirm={handleClearAll}
+          onClose={() => setShowClearConfirm(false)}
+        />
       )}
     </div>
   );

@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from typing import Optional
 
 from app.db.database import get_db
 from app.models.call import Call
 from app.models.sip_event import SIPEvent
+from app.models.test_run import TestRun
 from app.schemas.schemas import CallSchema, CallDetailSchema, SIPEventSchema
 
 router = APIRouter()
@@ -35,6 +36,43 @@ async def list_calls(
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     return result.scalars().all()
+
+
+@router.delete("/clear-all")
+async def clear_all_data(
+    confirm: bool = Query(False, description="Must be true to actually clear data"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Permanently delete ALL calls, SIP events, and test runs.
+    Use this between test sessions so old captures don't mix with new ones.
+    Requires confirm=true to actually execute (safety guard against accidental calls).
+    """
+    if not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Pass confirm=true to permanently clear all call data.",
+        )
+
+    calls_count = (await db.execute(select(func.count(Call.id)))).scalar() or 0
+    events_count = (await db.execute(select(func.count(SIPEvent.id)))).scalar() or 0
+    tests_count = (await db.execute(select(func.count(TestRun.id)))).scalar() or 0
+
+    # Delete children first (SIPEvent/TestRun reference Call), then calls.
+    await db.execute(delete(SIPEvent))
+    await db.execute(delete(TestRun))
+    await db.execute(delete(Call))
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "message": "All call data cleared.",
+        "deleted": {
+            "calls": calls_count,
+            "events": events_count,
+            "test_runs": tests_count,
+        },
+    }
 
 
 @router.get("/{call_id}", response_model=CallDetailSchema)

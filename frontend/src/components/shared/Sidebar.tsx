@@ -32,7 +32,7 @@ export default function Sidebar({ currentPage, onNavigate }: Props) {
         ))}
       </nav>
       <div className="sidebar-footer">
-        <span className="version-badge">v1.0.0</span>
+        <span className="version-badge">v1.0.1</span>
       </div>
     </aside>
   );

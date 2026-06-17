@@ -26,6 +26,11 @@ export const api = {
 
   deleteCall: (id: number) => apiFetch<void>(`/calls/${id}`, { method: "DELETE" }),
 
+  clearAllData: () => apiFetch<{ status: string; message: string; deleted: Record<string, number> }>(
+    "/calls/clear-all?confirm=true",
+    { method: "DELETE" }
+  ),
+
   getAnalytics: () => apiFetch<Analytics>("/analytics"),
 
   uploadPcap: (file: File, expectedStatus?: string): Promise<UploadResult> => {

@@ -103,8 +103,44 @@ body {
 /* ── Page ─────────────────────────────────────────────── */
 .page { max-width: 1200px; }
 .page-header { margin-bottom: 24px; }
+.page-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
 .page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
 .page-subtitle { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+
+/* ── Clear data button ──────────────────────────────────── */
+.clear-data-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  border: 1px solid #f8514944;
+  background: #2e1111;
+  color: var(--red);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.clear-data-btn:hover:not(:disabled) { background: #3a1414; }
+.clear-data-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.cleared-banner {
+  background: #1a2230;
+  border: 1px solid #58a6ff33;
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 18px;
+}
 
 /* ── Upload zone ────────────────────────────────────────── */
 .upload-zone {
@@ -470,6 +506,44 @@ body {
   word-break: break-word;
   flex: 1;
 }
+
+/* ── Confirm dialog ──────────────────────────────────────── */
+.confirm-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 90%;
+  max-width: 420px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.confirm-title { font-size: 16px; font-weight: 700; color: var(--text); }
+.confirm-message { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+.confirm-error { font-size: 12.5px; color: var(--red); }
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.confirm-btn {
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: opacity 0.15s, background 0.15s;
+}
+.confirm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.confirm-btn.cancel { background: var(--surface2); color: var(--text); }
+.confirm-btn.cancel:hover:not(:disabled) { background: var(--border); }
+.confirm-btn.danger { background: var(--red); color: #fff; border-color: var(--red); }
+.confirm-btn.danger:hover:not(:disabled) { opacity: 0.88; }
+.confirm-btn.primary { background: var(--accent); color: #0d1117; border-color: var(--accent); }
+.confirm-btn.primary:hover:not(:disabled) { opacity: 0.88; }
 
 /* ── Analytics ───────────────────────────────────────────── */
 .kpi-grid {
