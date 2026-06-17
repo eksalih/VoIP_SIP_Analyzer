@@ -100,7 +100,7 @@ Validate SIP captures against expected outcomes and automatically generate PASS/
 ### Run with Docker
 
 ```bash
-git clone https://github.com/yourusername/voip-sip-analyzer.git
+git clone https://github.com/eksalih/VoIP_SIP_Analyzer.git
 cd voip-sip-analyzer
 
 docker compose up --build
