@@ -1,0 +1,82 @@
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional
+from app.models.call import CallStatus
+
+
+class SIPEventSchema(BaseModel):
+    id: int
+    timestamp: Optional[datetime] = None
+    sip_method: Optional[str] = None
+    sip_response_code: Optional[int] = None
+    sip_response_text: Optional[str] = None
+    source_ip: Optional[str] = None
+    destination_ip: Optional[str] = None
+    raw_message: Optional[str] = None
+    sequence_number: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CallSchema(BaseModel):
+    id: int
+    call_id: str
+    caller: Optional[str] = None
+    called: Optional[str] = None
+    display_name: Optional[str] = None
+    source_ip: Optional[str] = None
+    destination_ip: Optional[str] = None
+    user_agent: Optional[str] = None
+    sip_domain: Optional[str] = None
+    branch_id: Optional[str] = None
+    start_time: Optional[datetime] = None
+    ring_time: Optional[datetime] = None
+    answer_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    ring_duration: Optional[float] = None
+    talk_duration: Optional[float] = None
+    total_duration: Optional[float] = None
+    status: CallStatus
+    sip_result_code: Optional[int] = None
+    rejection_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CallDetailSchema(CallSchema):
+    events: list[SIPEventSchema] = []
+
+
+class AnalyticsSchema(BaseModel):
+    total_calls: int
+    answered: int
+    missed: int
+    rejected: int
+    failed: int
+    cancelled: int
+    success_rate: float
+    avg_ring_duration: Optional[float] = None
+    avg_talk_duration: Optional[float] = None
+    calls_by_day: list[dict] = []
+    status_distribution: list[dict] = []
+
+
+class TestResultSchema(BaseModel):
+    call_id: str
+    expected: str
+    detected: str
+    result: str
+
+
+class UploadResponseSchema(BaseModel):
+    status: str
+    file: Optional[str] = None
+    message: Optional[str] = None
+    packets_parsed: Optional[int] = None
+    calls_processed: Optional[int] = None
+    execution_time: Optional[float] = None
+    test_results: Optional[list[TestResultSchema]] = None
+    summary: Optional[dict] = None
