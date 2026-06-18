@@ -21,6 +21,7 @@ class SIPEventSchema(BaseModel):
 
 class CallSchema(BaseModel):
     id: int
+    capture_file_id: Optional[int] = None
     call_id: str
     caller: Optional[str] = None
     called: Optional[str] = None
@@ -50,6 +51,25 @@ class CallDetailSchema(CallSchema):
     events: list[SIPEventSchema] = []
 
 
+class CaptureFileSchema(BaseModel):
+    id: int
+    filename: str
+    file_size_bytes: Optional[int] = None
+    packets_parsed: Optional[int] = None
+    calls_found: Optional[int] = None
+    answered_count: Optional[int] = None
+    missed_count: Optional[int] = None
+    rejected_count: Optional[int] = None
+    failed_count: Optional[int] = None
+    cancelled_count: Optional[int] = None
+    processing_time_seconds: Optional[float] = None
+    uploaded_at: Optional[datetime] = None
+    label: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class AnalyticsSchema(BaseModel):
     total_calls: int
     answered: int
@@ -74,9 +94,22 @@ class TestResultSchema(BaseModel):
 class UploadResponseSchema(BaseModel):
     status: str
     file: Optional[str] = None
+    capture_file_id: Optional[int] = None
     message: Optional[str] = None
     packets_parsed: Optional[int] = None
     calls_processed: Optional[int] = None
     execution_time: Optional[float] = None
     test_results: Optional[list[TestResultSchema]] = None
     summary: Optional[dict] = None
+
+
+class BatchUploadResponseSchema(BaseModel):
+    status: str
+    files_processed: int
+    files_ok: int
+    files_failed: int
+    total_packets_parsed: int
+    total_calls_processed: int
+    execution_time: float
+    combined_summary: dict
+    files: list[UploadResponseSchema]

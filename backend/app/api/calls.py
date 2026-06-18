@@ -7,6 +7,7 @@ from app.db.database import get_db
 from app.models.call import Call
 from app.models.sip_event import SIPEvent
 from app.models.test_run import TestRun
+from app.models.capture_file import CaptureFile
 from app.schemas.schemas import CallSchema, CallDetailSchema, SIPEventSchema
 
 router = APIRouter()
@@ -18,6 +19,7 @@ async def list_calls(
     limit: int = Query(100, ge=1, le=500),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    capture_file_id: Optional[int] = Query(None, description="Filter to calls from a single uploaded capture file"),
     db: AsyncSession = Depends(get_db),
 ):
     """List all calls with optional filters."""
@@ -25,6 +27,9 @@ async def list_calls(
 
     if status:
         q = q.where(Call.status == status.upper())
+
+    if capture_file_id is not None:
+        q = q.where(Call.capture_file_id == capture_file_id)
 
     if search:
         q = q.where(
@@ -44,7 +49,7 @@ async def clear_all_data(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Permanently delete ALL calls, SIP events, and test runs.
+    Permanently delete ALL calls, SIP events, test runs, and capture file records.
     Use this between test sessions so old captures don't mix with new ones.
     Requires confirm=true to actually execute (safety guard against accidental calls).
     """
@@ -57,11 +62,13 @@ async def clear_all_data(
     calls_count = (await db.execute(select(func.count(Call.id)))).scalar() or 0
     events_count = (await db.execute(select(func.count(SIPEvent.id)))).scalar() or 0
     tests_count = (await db.execute(select(func.count(TestRun.id)))).scalar() or 0
+    files_count = (await db.execute(select(func.count(CaptureFile.id)))).scalar() or 0
 
-    # Delete children first (SIPEvent/TestRun reference Call), then calls.
+    # Delete children first (SIPEvent/TestRun reference Call; Call references CaptureFile).
     await db.execute(delete(SIPEvent))
     await db.execute(delete(TestRun))
     await db.execute(delete(Call))
+    await db.execute(delete(CaptureFile))
     await db.commit()
 
     return {
@@ -71,6 +78,7 @@ async def clear_all_data(
             "calls": calls_count,
             "events": events_count,
             "test_runs": tests_count,
+            "capture_files": files_count,
         },
     }
 

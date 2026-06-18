@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Enum as SAEnum
+from sqlalchemy import Column, Integer, String, Float, DateTime, Enum as SAEnum, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -17,9 +17,16 @@ class CallStatus(str, enum.Enum):
 
 class Call(Base):
     __tablename__ = "calls"
+    __table_args__ = (
+        # SIP Call-IDs only need to be unique *within* a single capture file.
+        # Different test sessions/phones can legitimately reuse the same Call-ID
+        # string, so a global unique constraint would corrupt bulk uploads.
+        UniqueConstraint("capture_file_id", "call_id", name="uq_call_per_capture_file"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    call_id = Column(String, unique=True, index=True, nullable=False)
+    capture_file_id = Column(Integer, ForeignKey("capture_files.id"), nullable=True, index=True)
+    call_id = Column(String, index=True, nullable=False)
     caller = Column(String, nullable=True)
     called = Column(String, nullable=True)
     display_name = Column(String, nullable=True)
@@ -44,5 +51,6 @@ class Call(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    capture_file = relationship("CaptureFile", back_populates="calls")
     events = relationship("SIPEvent", back_populates="call", cascade="all, delete-orphan")
     test_runs = relationship("TestRun", back_populates="call", cascade="all, delete-orphan")

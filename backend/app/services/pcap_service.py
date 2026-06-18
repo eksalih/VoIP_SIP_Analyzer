@@ -1,6 +1,10 @@
 """
 PCAP Processing Service
 Coordinates parsing, classification, and database persistence.
+
+Every upload creates a CaptureFile row. All calls extracted from that
+upload are scoped to it, so multiple files (or repeated test sessions)
+never blur their calls together in the call list.
 """
 import logging
 import time
@@ -13,6 +17,7 @@ from app.core.call_state_machine import process_pcap_sessions, CallSession
 from app.models.call import Call, CallStatus
 from app.models.sip_event import SIPEvent
 from app.models.test_run import TestRun
+from app.models.capture_file import CaptureFile
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +27,39 @@ async def process_pcap(
     filename: str,
     db: AsyncSession,
     expected_status: str | None = None,
+    file_size_bytes: int | None = None,
+    label: str | None = None,
 ) -> dict:
     """
-    Full processing pipeline:
-    1. Parse PCAP
-    2. Classify sessions
-    3. Persist to DB
-    4. Return summary
+    Full single-file processing pipeline:
+    1. Create a CaptureFile record
+    2. Parse PCAP
+    3. Classify sessions
+    4. Persist calls + events, scoped to this capture file
+    5. Return summary
     """
     start = time.monotonic()
+
+    capture_file = CaptureFile(
+        filename=filename,
+        file_size_bytes=file_size_bytes,
+        label=label,
+    )
+    db.add(capture_file)
+    await db.flush()  # assigns capture_file.id
+
     packets = parse_pcap_file(file_path)
 
     if not packets:
+        capture_file.packets_parsed = 0
+        capture_file.calls_found = 0
+        capture_file.processing_time_seconds = round(time.monotonic() - start, 3)
+        await db.flush()
         return {
             "status": "error",
             "message": "No SIP packets found in capture file",
+            "file": filename,
+            "capture_file_id": capture_file.id,
             "calls_processed": 0,
         }
 
@@ -45,7 +68,7 @@ async def process_pcap(
     test_results = []
 
     for session in sessions:
-        call = await _upsert_call(session, db)
+        call = await _upsert_call(session, capture_file.id, db)
         await _save_events(session, call, db)
 
         if expected_status:
@@ -61,23 +84,106 @@ async def process_pcap(
 
         calls_saved += 1
 
+    elapsed = round(time.monotonic() - start, 3)
+    summary = _build_summary(sessions)
+
+    # Persist rollup counts onto the capture file for fast list-view rendering
+    capture_file.packets_parsed = len(packets)
+    capture_file.calls_found = calls_saved
+    capture_file.answered_count = summary.get("ANSWERED", 0)
+    capture_file.missed_count = summary.get("MISSED", 0)
+    capture_file.rejected_count = summary.get("REJECTED", 0)
+    capture_file.failed_count = summary.get("FAILED", 0)
+    capture_file.cancelled_count = summary.get("CANCELLED", 0)
+    capture_file.processing_time_seconds = elapsed
+
     await db.flush()
 
-    elapsed = round(time.monotonic() - start, 3)
     return {
         "status": "ok",
         "file": filename,
+        "capture_file_id": capture_file.id,
         "packets_parsed": len(packets),
         "calls_processed": calls_saved,
         "execution_time": elapsed,
         "test_results": test_results,
-        "summary": _build_summary(sessions),
+        "summary": summary,
     }
 
 
-async def _upsert_call(session: CallSession, db: AsyncSession) -> Call:
-    """Insert or update a Call record from a session."""
-    result = await db.execute(select(Call).where(Call.call_id == session.call_id))
+async def process_pcap_batch(
+    files: list[tuple[str, str, int]],  # (file_path, filename, file_size_bytes)
+    db: AsyncSession,
+    expected_status: str | None = None,
+) -> dict:
+    """
+    Process multiple PCAP files in one upload action.
+    Each file gets its own CaptureFile row; failures in one file
+    do not block processing of the rest.
+    """
+    batch_start = time.monotonic()
+    results = []
+    combined_summary = {s: 0 for s in ["ANSWERED", "MISSED", "REJECTED", "FAILED", "CANCELLED", "UNKNOWN"]}
+
+    for file_path, filename, file_size_bytes in files:
+        try:
+            result = await process_pcap(
+                file_path=file_path,
+                filename=filename,
+                db=db,
+                expected_status=expected_status,
+                file_size_bytes=file_size_bytes,
+            )
+        except Exception as e:
+            logger.error(f"Failed to process {filename}: {e}")
+            result = {
+                "status": "error",
+                "file": filename,
+                "message": str(e),
+                "calls_processed": 0,
+            }
+
+        results.append(result)
+
+        if result.get("summary"):
+            for key, val in result["summary"].items():
+                if key in combined_summary:
+                    combined_summary[key] += val
+
+    total_calls = sum(r.get("calls_processed", 0) for r in results)
+    total_packets = sum(r.get("packets_parsed", 0) for r in results)
+    files_ok = sum(1 for r in results if r.get("status") == "ok")
+    files_failed = len(results) - files_ok
+
+    return {
+        "status": "ok" if files_failed == 0 else "partial",
+        "files_processed": len(results),
+        "files_ok": files_ok,
+        "files_failed": files_failed,
+        "total_packets_parsed": total_packets,
+        "total_calls_processed": total_calls,
+        "execution_time": round(time.monotonic() - batch_start, 3),
+        "combined_summary": {
+            **combined_summary,
+            "total": total_calls,
+            "success_rate": round((combined_summary["ANSWERED"] / total_calls * 100), 1) if total_calls else 0,
+        },
+        "files": results,
+    }
+
+
+async def _upsert_call(session: CallSession, capture_file_id: int, db: AsyncSession) -> Call:
+    """
+    Insert or update a Call record from a session.
+    Lookup is scoped to (capture_file_id, call_id) — the same Call-ID string
+    appearing in two different uploads must NOT be treated as the same call.
+    """
+    result = await db.execute(
+        select(Call).where(
+            Call.capture_file_id == capture_file_id,
+            Call.call_id == session.call_id,
+        )
+    )
     call = result.scalar_one_or_none()
 
     status_enum = _map_status(session.status)
@@ -92,6 +198,7 @@ async def _upsert_call(session: CallSession, db: AsyncSession) -> Call:
         call.rejection_reason = session.rejection_reason
     else:
         call = Call(
+            capture_file_id=capture_file_id,
             call_id=session.call_id,
             caller=session.caller,
             called=session.called,

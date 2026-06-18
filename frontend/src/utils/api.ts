@@ -1,4 +1,4 @@
-import type { Call, Analytics, UploadResult } from "../types";
+import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile } from "../types";
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -12,11 +12,12 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getCalls: (params?: { status?: string; search?: string; limit?: number }) => {
+  getCalls: (params?: { status?: string; search?: string; limit?: number; captureFileId?: number }) => {
     const q = new URLSearchParams();
     if (params?.status) q.set("status", params.status);
     if (params?.search) q.set("search", params.search);
     if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.captureFileId) q.set("capture_file_id", String(params.captureFileId));
     return apiFetch<Call[]>(`/calls?${q.toString()}`);
   },
 
@@ -39,6 +40,23 @@ export const api = {
     if (expectedStatus) fd.append("expected_status", expectedStatus);
     return apiFetch<UploadResult>("/upload-pcap", { method: "POST", body: fd });
   },
+
+  uploadPcapBatch: (files: File[], expectedStatus?: string): Promise<BatchUploadResult> => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    if (expectedStatus) fd.append("expected_status", expectedStatus);
+    return apiFetch<BatchUploadResult>("/upload-pcap/batch", { method: "POST", body: fd });
+  },
+
+  getCaptureFiles: (params?: { limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    return apiFetch<CaptureFile[]>(`/capture-files?${q.toString()}`);
+  },
+
+  getCaptureFile: (id: number) => apiFetch<CaptureFile>(`/capture-files/${id}`),
+
+  deleteCaptureFile: (id: number) => apiFetch<void>(`/capture-files/${id}`, { method: "DELETE" }),
 
   replayTest: (file: File, expectedStatus: string) => {
     const fd = new FormData();

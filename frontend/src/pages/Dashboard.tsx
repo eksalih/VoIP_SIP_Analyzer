@@ -4,30 +4,56 @@ import { formatDateTime, formatDuration, shortCallId } from "../utils/format";
 import StatusBadge from "../components/shared/StatusBadge";
 import UploadPanel from "../components/calls/UploadPanel";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
-import type { Call, CallStatus, UploadResult } from "../types";
+import CaptureFileCard from "../components/calls/CaptureFileCard";
+import type { Call, CallStatus, UploadResult, BatchUploadResult, CaptureFile } from "../types";
 
 interface Props {
   onSelectCall: (id: number) => void;
 }
 
+type ViewMode = "files" | "all";
+
 const STATUS_FILTERS: (CallStatus | "ALL")[] = ["ALL", "ANSWERED", "MISSED", "REJECTED", "FAILED", "CANCELLED"];
+
+function isBatchResult(r: UploadResult | BatchUploadResult): r is BatchUploadResult {
+  return "files_processed" in r;
+}
 
 export default function Dashboard({ onSelectCall }: Props) {
   const [calls, setCalls] = useState<Call[]>([]);
+  const [captureFiles, setCaptureFiles] = useState<CaptureFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filesLoading, setFilesLoading] = useState(true);
   const [filter, setFilter] = useState<CallStatus | "ALL">("ALL");
   const [search, setSearch] = useState("");
-  const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [clearedBanner, setClearedBanner] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("files");
+  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
+  const [uploadBanner, setUploadBanner] = useState<UploadResult | BatchUploadResult | null>(null);
+  const [clearedBanner, setClearedBanner] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<CaptureFile | null>(null);
+
+  const loadFiles = useCallback(async () => {
+    setFilesLoading(true);
+    try {
+      const data = await api.getCaptureFiles({ limit: 200 });
+      setCaptureFiles(data);
+    } catch {
+      setCaptureFiles([]);
+    } finally {
+      setFilesLoading(false);
+    }
+  }, []);
+
+  const loadCalls = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.getCalls({
         status: filter !== "ALL" ? filter : undefined,
         search: search || undefined,
         limit: 200,
+        captureFileId: viewMode === "files" && selectedFileId ? selectedFileId : undefined,
       });
       setCalls(data);
     } catch {
@@ -35,37 +61,58 @@ export default function Dashboard({ onSelectCall }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [filter, search]);
+  }, [filter, search, viewMode, selectedFileId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadFiles(); }, [loadFiles]);
+  useEffect(() => { loadCalls(); }, [loadCalls]);
 
-  const handleUpload = async (result: UploadResult) => {
-    setUploadResult(result);
+  const handleUpload = async (result: UploadResult | BatchUploadResult) => {
+    setUploadBanner(result);
     setClearedBanner(null);
-    await load();
+    await Promise.all([loadFiles(), loadCalls()]);
+    // Auto-select the newly uploaded file (single-upload case) so results are immediately visible
+    if (!isBatchResult(result) && result.capture_file_id) {
+      setSelectedFileId(result.capture_file_id);
+      setViewMode("files");
+    } else if (isBatchResult(result)) {
+      setSelectedFileId(null); // show "all from this batch" by clearing the single-file filter
+      setViewMode("files");
+    }
   };
 
   const handleClearAll = async () => {
     const result = await api.clearAllData();
     setClearedBanner(
-      `Cleared ${result.deleted.calls} call(s), ${result.deleted.events} event(s), ${result.deleted.test_runs} test run(s).`
+      `Cleared ${result.deleted.calls} call(s), ${result.deleted.events} event(s), ${result.deleted.test_runs} test run(s), ${result.deleted.capture_files ?? 0} capture file(s).`
     );
-    setUploadResult(null);
-    await load();
+    setUploadBanner(null);
+    setSelectedFileId(null);
+    await Promise.all([loadFiles(), loadCalls()]);
   };
+
+  const handleDeleteFile = async () => {
+    if (!fileToDelete) return;
+    await api.deleteCaptureFile(fileToDelete.id);
+    if (selectedFileId === fileToDelete.id) setSelectedFileId(null);
+    setFileToDelete(null);
+    await Promise.all([loadFiles(), loadCalls()]);
+  };
+
+  const totalCallsAcrossFiles = captureFiles.reduce((sum, f) => sum + (f.calls_found ?? 0), 0);
+  const selectedFile = captureFiles.find((f) => f.id === selectedFileId) || null;
 
   return (
     <div className="page">
       <div className="page-header page-header-row">
         <div>
           <h1 className="page-title">Call Log</h1>
-          <p className="page-subtitle">Upload a PCAP capture to analyze SIP calls</p>
+          <p className="page-subtitle">Upload PCAP captures to analyze SIP calls</p>
         </div>
         <button
           className="clear-data-btn"
           onClick={() => setShowClearConfirm(true)}
-          disabled={calls.length === 0 && !uploadResult}
-          title="Permanently delete all calls, events, and test runs"
+          disabled={captureFiles.length === 0}
+          title="Permanently delete all calls, events, capture files, and test runs"
         >
           🗑 Clear All Data
         </button>
@@ -79,23 +126,83 @@ export default function Dashboard({ onSelectCall }: Props) {
         </div>
       )}
 
-      {uploadResult && uploadResult.status === "ok" && (
+      {uploadBanner && isBatchResult(uploadBanner) && (
         <div className="upload-result-banner">
-          <strong>✓ Processed:</strong> {uploadResult.calls_processed} calls from {uploadResult.packets_parsed} packets
-          &nbsp;·&nbsp; {uploadResult.execution_time}s
-          {uploadResult.summary && (
+          <strong>✓ Batch processed:</strong> {uploadBanner.files_ok}/{uploadBanner.files_processed} files
+          &nbsp;·&nbsp; {uploadBanner.total_calls_processed} calls from {uploadBanner.total_packets_parsed} packets
+          &nbsp;·&nbsp; {uploadBanner.execution_time}s
+          {uploadBanner.files_failed > 0 && (
+            <span className="stat-pill rejected">{uploadBanner.files_failed} file(s) failed</span>
+          )}
+          <span>
+            &nbsp;·&nbsp;
+            <span className="stat-pill answered">{uploadBanner.combined_summary.ANSWERED ?? 0} answered</span>
+            <span className="stat-pill missed">{uploadBanner.combined_summary.MISSED ?? 0} missed</span>
+            <span className="stat-pill rejected">{uploadBanner.combined_summary.REJECTED ?? 0} rejected</span>
+          </span>
+        </div>
+      )}
+
+      {uploadBanner && !isBatchResult(uploadBanner) && uploadBanner.status === "ok" && (
+        <div className="upload-result-banner">
+          <strong>✓ Processed:</strong> {uploadBanner.calls_processed} calls from {uploadBanner.packets_parsed} packets
+          &nbsp;·&nbsp; {uploadBanner.execution_time}s
+          {uploadBanner.summary && (
             <span>
               &nbsp;·&nbsp;
-              <span className="stat-pill answered">{uploadResult.summary.ANSWERED ?? 0} answered</span>
-              <span className="stat-pill missed">{uploadResult.summary.MISSED ?? 0} missed</span>
-              <span className="stat-pill rejected">{uploadResult.summary.REJECTED ?? 0} rejected</span>
+              <span className="stat-pill answered">{uploadBanner.summary.ANSWERED ?? 0} answered</span>
+              <span className="stat-pill missed">{uploadBanner.summary.MISSED ?? 0} missed</span>
+              <span className="stat-pill rejected">{uploadBanner.summary.REJECTED ?? 0} rejected</span>
             </span>
           )}
         </div>
       )}
 
+      {uploadBanner && !isBatchResult(uploadBanner) && uploadBanner.status === "error" && (
+        <div className="upload-error-banner">
+          <strong>⚠ {uploadBanner.file}:</strong> {uploadBanner.message}
+        </div>
+      )}
+
+      {/* View toggle */}
+      <div className="view-toggle">
+        <button className={`view-tab ${viewMode === "files" ? "active" : ""}`} onClick={() => setViewMode("files")}>
+          By Capture File {captureFiles.length > 0 && `(${captureFiles.length})`}
+        </button>
+        <button className={`view-tab ${viewMode === "all" ? "active" : ""}`} onClick={() => { setViewMode("all"); setSelectedFileId(null); }}>
+          All Calls {totalCallsAcrossFiles > 0 && `(${totalCallsAcrossFiles})`}
+        </button>
+      </div>
+
+      {/* Capture file grid */}
+      {viewMode === "files" && (
+        filesLoading ? (
+          <div className="loading-state"><div className="spinner" /><span>Loading capture files…</span></div>
+        ) : captureFiles.length === 0 ? (
+          <div className="empty-state"><p>No capture files uploaded yet.</p></div>
+        ) : (
+          <div className="capture-grid">
+            {captureFiles.map((f) => (
+              <CaptureFileCard
+                key={f.id}
+                file={f}
+                selected={selectedFileId === f.id}
+                onClick={() => setSelectedFileId(selectedFileId === f.id ? null : f.id)}
+                onDelete={() => setFileToDelete(f)}
+              />
+            ))}
+          </div>
+        )
+      )}
+
       {/* Filters */}
-      <div className="filter-bar">
+      <div className="filter-bar" style={{ marginTop: viewMode === "files" ? "20px" : "0" }}>
+        {viewMode === "files" && selectedFile && (
+          <span className="active-file-pill">
+            Showing: {selectedFile.filename}
+            <button onClick={() => setSelectedFileId(null)}>✕</button>
+          </span>
+        )}
         <div className="filter-tabs">
           {STATUS_FILTERS.map((s) => (
             <button
@@ -123,7 +230,11 @@ export default function Dashboard({ onSelectCall }: Props) {
         </div>
       ) : calls.length === 0 ? (
         <div className="empty-state">
-          <p>No calls found. Upload a PCAP file to get started.</p>
+          <p>
+            {viewMode === "files" && selectedFileId
+              ? "No calls match this filter in the selected capture file."
+              : "No calls found. Upload a PCAP file to get started."}
+          </p>
         </div>
       ) : (
         <div className="table-wrap">
@@ -167,12 +278,24 @@ export default function Dashboard({ onSelectCall }: Props) {
       {showClearConfirm && (
         <ConfirmDialog
           title="Clear all call data?"
-          message={`This will permanently delete all ${calls.length} call(s), their SIP events, and replay test history. This cannot be undone. Use this before starting a new test session.`}
+          message={`This will permanently delete all ${totalCallsAcrossFiles} call(s) across ${captureFiles.length} capture file(s), their SIP events, and replay test history. This cannot be undone. Use this before starting a new test session.`}
           confirmLabel="Clear Everything"
           cancelLabel="Cancel"
           danger
           onConfirm={handleClearAll}
           onClose={() => setShowClearConfirm(false)}
+        />
+      )}
+
+      {fileToDelete && (
+        <ConfirmDialog
+          title="Delete this capture file?"
+          message={`This will permanently delete "${fileToDelete.filename}" and its ${fileToDelete.calls_found ?? 0} call(s). This cannot be undone.`}
+          confirmLabel="Delete File"
+          cancelLabel="Cancel"
+          danger
+          onConfirm={handleDeleteFile}
+          onClose={() => setFileToDelete(null)}
         />
       )}
     </div>
