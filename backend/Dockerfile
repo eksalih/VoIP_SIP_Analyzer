@@ -1,14 +1,21 @@
 FROM python:3.12-slim
 
-# Install tshark for pyshark support
-RUN apt-get update && apt-get install -y \
-    tshark \
-    libpcap-dev \
-    && rm -rf /var/lib/apt/lists/*
+# tshark is OPTIONAL and not installed by default -- the app uses Scapy as its
+# primary PCAP parser, which has no external binary dependency. Build with
+# `docker build --build-arg INSTALL_TSHARK=true .` if you want to enable the
+# optional PyShark backend (SIP_PARSER_BACKEND=pyshark) for its deeper
+# protocol decoding on top of Scapy's regex-based parser.
+ARG INSTALL_TSHARK=false
 
-# Allow tshark without root
-RUN echo "wireshark-common wireshark-common/install-setuid boolean true" | debconf-set-selections \
-    && dpkg-reconfigure -f noninteractive wireshark-common || true
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpcap-dev \
+    curl \
+    && if [ "$INSTALL_TSHARK" = "true" ]; then \
+         echo "wireshark-common wireshark-common/install-setuid boolean true" | debconf-set-selections \
+         && apt-get install -y --no-install-recommends tshark \
+         && dpkg-reconfigure -f noninteractive wireshark-common; \
+       fi \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -18,5 +25,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

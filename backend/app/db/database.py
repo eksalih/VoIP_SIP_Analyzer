@@ -1,8 +1,17 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from pathlib import Path
 import os
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./voip_analyzer.db")
+# Default SQLite path lives under ./data so a single `docker-compose.yml`
+# volume mount (./data:/app/data) is enough to persist the database across
+# container restarts/rebuilds. Without this, a self-hoster who restarts
+# their container without realizing the DB file wasn't in a mounted volume
+# would silently lose all call history.
+_DEFAULT_DB_PATH = Path("data") / "voip_analyzer.db"
+_DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///./{_DEFAULT_DB_PATH}")
 
 engine = create_async_engine(
     DATABASE_URL,

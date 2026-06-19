@@ -6,8 +6,17 @@ asyncpg==0.29.0
 pydantic==2.9.2
 python-multipart==0.0.12
 aiofiles==24.1.0
+
+# Core PCAP parser -- pure Python, no external binary required.
+# This is the default parser backend (see SIP_PARSER_BACKEND in .env.example).
 scapy==2.5.0
+
+# Optional advanced parser backend. Only used if SIP_PARSER_BACKEND=pyshark
+# is set AND tshark is installed on the host/container. Safe to leave
+# installed even if unused -- parse_pcap_file() defaults to Scapy and only
+# imports pyshark when explicitly requested.
 pyshark==0.6
+
 pytest==8.3.3
 pytest-asyncio==0.24.0
 httpx==0.27.2

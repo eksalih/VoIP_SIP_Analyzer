@@ -300,3 +300,106 @@ class TestPipeline:
         assert statuses["call-a"] == "ANSWERED"
         assert statuses["call-b"] == "MISSED"
         assert statuses["call-c"] == "REJECTED"
+
+
+class TestParserBackendSelection:
+    """
+    v1.2.0: Scapy is the default/primary parser (no external binary
+    dependency). PyShark/tshark is opt-in via SIP_PARSER_BACKEND=pyshark.
+    These tests confirm the selection logic and the safety fallback.
+    """
+
+    def test_default_backend_is_scapy(self, monkeypatch):
+        monkeypatch.delenv("SIP_PARSER_BACKEND", raising=False)
+        import importlib
+        from app.core import sip_parser
+        importlib.reload(sip_parser)
+        assert sip_parser.PREFERRED_PARSER == "scapy"
+
+    def test_env_var_can_request_pyshark(self, monkeypatch):
+        monkeypatch.setenv("SIP_PARSER_BACKEND", "pyshark")
+        import importlib
+        from app.core import sip_parser
+        importlib.reload(sip_parser)
+        assert sip_parser.PREFERRED_PARSER == "pyshark"
+        # Reset to default for subsequent tests in the suite
+        monkeypatch.delenv("SIP_PARSER_BACKEND", raising=False)
+        importlib.reload(sip_parser)
+
+    def test_parse_pcap_file_works_without_tshark_installed(self, tmp_path):
+        """
+        The core promise of this release: parsing must succeed even when
+        tshark is completely absent from the system (the default self-hosting
+        scenario). We don't assert anything about tshark's presence/absence
+        here -- we just confirm parse_pcap_file() produces correct results
+        using whichever backend is actually available, which in a tshark-less
+        environment must be Scapy.
+        """
+        from scapy.all import IP, UDP, Raw, wrpcap
+        from app.core.sip_parser import parse_pcap_file
+        import time
+
+        sip_invite = (
+            "INVITE sip:1002@127.0.0.1 SIP/2.0\r\n"
+            "Call-ID: backend-test-call@127.0.0.1\r\n"
+            "CSeq: 1 INVITE\r\n\r\n"
+        )
+        sip_200 = (
+            "SIP/2.0 200 OK\r\n"
+            "Call-ID: backend-test-call@127.0.0.1\r\n"
+            "CSeq: 1 INVITE\r\n\r\n"
+        )
+
+        pkts = []
+        for i, msg in enumerate([sip_invite, sip_200]):
+            pkt = IP(src="127.0.0.1", dst="127.0.0.1") / UDP(sport=5060, dport=5060) / Raw(load=msg.encode())
+            pkt.time = time.time() + i
+            pkts.append(pkt)
+
+        pcap_path = tmp_path / "backend_test.pcap"
+        wrpcap(str(pcap_path), pkts)
+
+        result = parse_pcap_file(str(pcap_path))
+        assert len(result) == 2
+        assert result[0].call_id == "backend-test-call@127.0.0.1"
+
+
+class TestNotifyOverHttpFiltering:
+    """
+    Some PBXs (observed on a real Yeastar capture) emit 'NOTIFY * HTTP/1.1'
+    traffic on the same port as SIP signaling -- this is NOT a SIP NOTIFY
+    despite sharing the method name, and must never be parsed as one.
+    """
+
+    def test_notify_over_http_is_not_parsed_as_sip(self, tmp_path):
+        from scapy.all import IP, UDP, Raw, wrpcap
+        from app.core.sip_parser import parse_pcap_file
+        import time
+
+        real_invite = (
+            "INVITE sip:1002@127.0.0.1 SIP/2.0\r\n"
+            "Call-ID: real-call@127.0.0.1\r\n"
+            "CSeq: 1 INVITE\r\n\r\n"
+        )
+        # This mimics the noise pattern: method name NOTIFY but HTTP/1.1 version,
+        # which is not a valid SIP request line and must be excluded.
+        notify_http_noise = (
+            "NOTIFY * HTTP/1.1\r\n"
+            "Call-ID: should-not-appear@127.0.0.1\r\n"
+            "Content-Length: 0\r\n\r\n"
+        )
+
+        pkts = []
+        for i, msg in enumerate([real_invite, notify_http_noise]):
+            pkt = IP(src="127.0.0.1", dst="127.0.0.1") / UDP(sport=5060, dport=5060) / Raw(load=msg.encode())
+            pkt.time = time.time() + i
+            pkts.append(pkt)
+
+        pcap_path = tmp_path / "notify_noise_test.pcap"
+        wrpcap(str(pcap_path), pkts)
+
+        result = parse_pcap_file(str(pcap_path))
+        call_ids = {p.call_id for p in result}
+
+        assert "real-call@127.0.0.1" in call_ids
+        assert "should-not-appear@127.0.0.1" not in call_ids
