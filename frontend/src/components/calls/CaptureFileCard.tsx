@@ -1,5 +1,7 @@
 import type { CaptureFile } from "../../types";
-import { formatDateTime, formatDuration } from "../../utils/format";
+import { formatDateTime } from "../../utils/format";
+
+const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 interface Props {
   file: CaptureFile;
@@ -18,17 +20,41 @@ function formatBytes(bytes: number | null): string {
 export default function CaptureFileCard({ file, selected, onClick, onDelete }: Props) {
   const total = file.calls_found ?? 0;
 
+  const handleExport = (format: "csv" | "pdf", e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = `${BASE}/export/${format}?capture_file_id=${file.id}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.click();
+  };
+
   return (
     <div className={`capture-card ${selected ? "selected" : ""}`} onClick={onClick}>
       <div className="capture-card-header">
         <span className="capture-card-name" title={file.filename}>{file.filename}</span>
-        <button
-          className="capture-card-delete"
-          title="Delete this capture file and its calls"
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        >
-          ✕
-        </button>
+        <div className="capture-card-actions">
+          <button
+            className="capture-card-action-btn"
+            title="Download CSV"
+            onClick={(e) => handleExport("csv", e)}
+          >
+            CSV
+          </button>
+          <button
+            className="capture-card-action-btn pdf"
+            title="Download PDF report"
+            onClick={(e) => handleExport("pdf", e)}
+          >
+            PDF
+          </button>
+          <button
+            className="capture-card-delete"
+            title="Delete this capture file and its calls"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       <div className="capture-card-meta">

@@ -298,3 +298,99 @@ class TestBatchUpload:
         # Nothing should have been persisted since validation failed before processing began
         all_files = (await client.get("/capture-files")).json()
         assert all_files == []
+
+
+class TestExportEndpoints:
+    """v1.3.0: CSV and PDF export endpoints."""
+
+    async def _upload_capture(self, client, tmp_path, call_id="export-test@host"):
+        path = _build_answered_call_pcap(tmp_path / "export_test.pcap", call_id=call_id)
+        with open(path, "rb") as f:
+            resp = await client.post(
+                "/upload-pcap",
+                files={"file": ("export_test.pcap", f, "application/octet-stream")},
+            )
+        assert resp.status_code == 200
+        return resp.json()["capture_file_id"]
+
+    @pytest.mark.asyncio
+    async def test_csv_export_returns_correct_content_type(self, client, tmp_path):
+        await self._upload_capture(client, tmp_path)
+        resp = await client.get("/export/csv")
+        assert resp.status_code == 200
+        assert "text/csv" in resp.headers["content-type"]
+
+    @pytest.mark.asyncio
+    async def test_csv_export_has_header_row_and_data(self, client, tmp_path):
+        await self._upload_capture(client, tmp_path)
+        resp = await client.get("/export/csv")
+        lines = resp.text.strip().splitlines()
+        assert len(lines) >= 2  # header + at least one data row
+        assert "Call-ID" in lines[0]
+        assert "Status" in lines[0]
+        assert "export-test@host" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_csv_export_filtered_by_capture_file_id(self, client, tmp_path):
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir(); dir_b.mkdir()
+        cf1 = await self._upload_capture(client, dir_a, "call-A@host")
+        await self._upload_capture(client, dir_b, "call-B@host")
+
+        resp = await client.get(f"/export/csv?capture_file_id={cf1}")
+        assert resp.status_code == 200
+        assert "call-A@host" in resp.text
+        assert "call-B@host" not in resp.text
+
+    @pytest.mark.asyncio
+    async def test_csv_export_filename_is_set(self, client, tmp_path):
+        await self._upload_capture(client, tmp_path)
+        resp = await client.get("/export/csv")
+        disposition = resp.headers.get("content-disposition", "")
+        assert "attachment" in disposition
+        assert ".csv" in disposition
+
+    @pytest.mark.asyncio
+    async def test_pdf_export_returns_valid_pdf(self, client, tmp_path):
+        await self._upload_capture(client, tmp_path)
+        resp = await client.get("/export/pdf")
+        assert resp.status_code == 200
+        assert "application/pdf" in resp.headers["content-type"]
+        assert resp.content[:4] == b"%PDF"
+
+    @pytest.mark.asyncio
+    async def test_pdf_export_accepts_vendor_name(self, client, tmp_path):
+        await self._upload_capture(client, tmp_path)
+        resp = await client.get("/export/pdf?vendor_name=Yeastar+PBX")
+        assert resp.status_code == 200
+        assert resp.content[:4] == b"%PDF"
+
+    @pytest.mark.asyncio
+    async def test_pdf_export_filtered_by_capture_file_id(self, client, tmp_path):
+        dir_a = tmp_path / "a"
+        dir_a.mkdir()
+        cf1 = await self._upload_capture(client, dir_a, "call-pdf-filter@host")
+        resp = await client.get(f"/export/pdf?capture_file_id={cf1}&vendor_name=TestVendor")
+        assert resp.status_code == 200
+        assert resp.content[:4] == b"%PDF"
+
+    @pytest.mark.asyncio
+    async def test_pdf_filename_is_set(self, client, tmp_path):
+        await self._upload_capture(client, tmp_path)
+        resp = await client.get("/export/pdf")
+        disposition = resp.headers.get("content-disposition", "")
+        assert "attachment" in disposition
+        assert ".pdf" in disposition
+
+    @pytest.mark.asyncio
+    async def test_export_empty_db_returns_valid_files(self, client):
+        """Exporting with no calls should still return valid CSV/PDF, not a 500."""
+        csv_resp = await client.get("/export/csv")
+        assert csv_resp.status_code == 200
+        lines = csv_resp.text.strip().splitlines()
+        assert len(lines) == 1  # header only, no data rows
+
+        pdf_resp = await client.get("/export/pdf")
+        assert pdf_resp.status_code == 200
+        assert pdf_resp.content[:4] == b"%PDF"

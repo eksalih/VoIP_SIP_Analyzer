@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.db.database import init_db
-from app.api import calls, analytics, upload, health, replay, capture_files
+from app.api import calls, analytics, upload, health, replay, capture_files, export
 
 
 @asynccontextmanager
@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VoIP SIP Analyzer",
     description="SIP packet capture analysis and call validation platform",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan,
 )
 
@@ -33,3 +33,4 @@ app.include_router(calls.router, prefix="/calls", tags=["Calls"])
 app.include_router(capture_files.router, prefix="/capture-files", tags=["Capture Files"])
 app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 app.include_router(replay.router, prefix="/replay-test", tags=["Replay"])
+app.include_router(export.router, prefix="/export", tags=["Export"])

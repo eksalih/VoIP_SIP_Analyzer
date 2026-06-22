@@ -7,6 +7,8 @@ import ConfirmDialog from "../components/shared/ConfirmDialog";
 import CaptureFileCard from "../components/calls/CaptureFileCard";
 import type { Call, CallStatus, UploadResult, BatchUploadResult, CaptureFile } from "../types";
 
+const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 interface Props {
   onSelectCall: (id: number) => void;
 }
@@ -17,6 +19,12 @@ const STATUS_FILTERS: (CallStatus | "ALL")[] = ["ALL", "ANSWERED", "MISSED", "RE
 
 function isBatchResult(r: UploadResult | BatchUploadResult): r is BatchUploadResult {
   return "files_processed" in r;
+}
+
+function triggerDownload(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.click();
 }
 
 export default function Dashboard({ onSelectCall }: Props) {
@@ -108,14 +116,32 @@ export default function Dashboard({ onSelectCall }: Props) {
           <h1 className="page-title">Call Log</h1>
           <p className="page-subtitle">Upload PCAP captures to analyze SIP calls</p>
         </div>
-        <button
-          className="clear-data-btn"
-          onClick={() => setShowClearConfirm(true)}
-          disabled={captureFiles.length === 0}
-          title="Permanently delete all calls, events, capture files, and test runs"
-        >
-          🗑 Clear All Data
-        </button>
+        <div className="header-actions">
+          <button
+            className="export-btn csv"
+            onClick={() => triggerDownload(`${BASE}/export/csv`)}
+            disabled={captureFiles.length === 0}
+            title="Export all calls as CSV"
+          >
+            ↓ CSV
+          </button>
+          <button
+            className="export-btn pdf"
+            onClick={() => triggerDownload(`${BASE}/export/pdf`)}
+            disabled={captureFiles.length === 0}
+            title="Export PDF compatibility report"
+          >
+            ↓ PDF
+          </button>
+          <button
+            className="clear-data-btn"
+            onClick={() => setShowClearConfirm(true)}
+            disabled={captureFiles.length === 0}
+            title="Permanently delete all calls, events, capture files, and test runs"
+          >
+            🗑 Clear All Data
+          </button>
+        </div>
       </div>
 
       <UploadPanel onSuccess={handleUpload} />

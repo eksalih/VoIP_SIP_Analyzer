@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        # Set to "true" to install tshark and enable the optional PyShark
+        # parser backend. Not required -- Scapy (the default) has no
+        # external binary dependency.
+        INSTALL_TSHARK: "false"
+    container_name: voip-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      # DATABASE_URL is pinned here (not left to backend/.env) so the SQLite
+      # file always resolves to /app/data, which matches the volume mount
+      # below -- this is what makes call history survive a
+      # `docker compose down` / rebuild. To use PostgreSQL instead, replace
+      # this line (compose `environment:` takes precedence over `env_file:`,
+      # so setting DATABASE_URL in backend/.env alone will NOT override it).
+      - DATABASE_URL=sqlite+aiosqlite:///./data/voip_analyzer.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Must match where the backend is actually reachable from the
+        # browser (not from inside the Docker network) -- typically your
+        # host's address on port 8000. Override in a .env at the repo root
+        # or pass --build-arg directly if self-hosting on a LAN/different host.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    container_name: voip-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
