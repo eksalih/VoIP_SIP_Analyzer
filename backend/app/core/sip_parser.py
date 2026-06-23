@@ -323,6 +323,34 @@ def parse_pcap_pyshark(file_path: str) -> list[SIPPacket]:
     return packets
 
 
+def _detect_tls(file_path: str) -> bool:
+    """
+    Heuristic check: does this capture look like SIP-over-TLS?
+    Returns True if a significant portion of TCP traffic is on port 5061
+    (the standard SIP-TLS port) and no plaintext SIP was found.
+    Not 100% accurate — port 5061 can be used for unencrypted SIP too —
+    but good enough to give a useful error message rather than a silent empty result.
+    """
+    try:
+        from scapy.all import rdpcap, TCP, Raw
+        pkts = rdpcap(file_path)
+        tls_port_count = 0
+        total_tcp = 0
+        for p in pkts:
+            if not p.haslayer(TCP):
+                continue
+            total_tcp += 1
+            tcp = p[TCP]
+            if 5061 in (tcp.sport, tcp.dport):
+                tls_port_count += 1
+        # If >20% of TCP packets are on port 5061 with no SIP found, likely TLS
+        if total_tcp > 0 and (tls_port_count / total_tcp) > 0.2:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def parse_pcap_file(file_path: str) -> list[SIPPacket]:
     """
     Main entry point: parse a PCAP/PCAPNG file.
@@ -331,6 +359,9 @@ def parse_pcap_file(file_path: str) -> list[SIPPacket]:
     SIP_PARSER_BACKEND=pyshark is set in the environment and tshark is
     installed, PyShark is tried first and Scapy is used as a fallback if
     it returns no packets or fails.
+
+    Raises ValueError if the capture appears to be SIP-over-TLS (encrypted),
+    which cannot be parsed without decryption keys.
     """
     logger.info(f"Parsing PCAP: {file_path} (backend preference: {PREFERRED_PARSER})")
 
@@ -341,6 +372,16 @@ def parse_pcap_file(file_path: str) -> list[SIPPacket]:
             packets = parse_pcap_scapy(file_path)
     else:
         packets = parse_pcap_scapy(file_path)
+
+    # If no SIP was found, check whether this looks like an encrypted capture
+    # so we can return a clear error instead of silently returning nothing.
+    if not packets and _detect_tls(file_path):
+        raise ValueError(
+            "No SIP packets found. This capture appears to contain SIP-over-TLS "
+            "(encrypted traffic on port 5061). This application only supports "
+            "unencrypted SIP. To analyze this capture you would need to decrypt "
+            "it first using your TLS private key."
+        )
 
     logger.info(f"Parsed {len(packets)} SIP packets")
     return packets

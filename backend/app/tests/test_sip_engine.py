@@ -255,6 +255,7 @@ class TestCallStateMachine:
         assert s.called == "5551002"
         assert s.source_ip == "192.168.1.10"
 
+class TestSession183TreatedAsRinging:
     def test_session_183_treated_as_ringing(self):
         """183 Session Progress should trigger ringing state."""
         pkts = [
@@ -263,7 +264,9 @@ class TestCallStateMachine:
             _pkt(code=200, ts_offset=8.0),
             _pkt("BYE", ts_offset=90.0),
         ]
-        s = self._session_from_packets(pkts)
+        s = CallSession(call_id=pkts[0].call_id)
+        s.packets = pkts
+        classify_session(s)
         assert s.has_ringing is True
         assert s.status == "ANSWERED"
 
@@ -403,3 +406,166 @@ class TestNotifyOverHttpFiltering:
 
         assert "real-call@127.0.0.1" in call_ids
         assert "should-not-appear@127.0.0.1" not in call_ids
+
+
+# ──────────────────────────────────────────────
+# v1.4.0: Auth challenge, re-INVITE, TLS detection
+# ──────────────────────────────────────────────
+
+class TestAuthChallengeHandling:
+    """
+    401 Unauthorized and 407 Proxy Auth Required are SIP auth challenges,
+    not call rejections. A call that is challenged then retried and answered
+    must produce status=ANSWERED with rejection_code=None.
+    A challenge with no retry must produce status=FAILED (not REJECTED).
+    """
+
+    def _session(self, pkts) -> CallSession:
+        s = CallSession(call_id=pkts[0].call_id)
+        s.packets = pkts
+        return classify_session(s)
+
+    def test_407_then_answered_is_answered_not_rejected(self):
+        """INVITE → 407 → INVITE (retry) → 200 OK → BYE = ANSWERED, no rejection_code."""
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=407, ts_offset=0.1),
+            _pkt("ACK", ts_offset=0.2),
+            _pkt("INVITE", ts_offset=0.3),
+            _pkt(code=100, ts_offset=0.4),
+            _pkt(code=180, ts_offset=1.0),
+            _pkt(code=200, ts_offset=5.0),
+            _pkt("BYE", ts_offset=60.0),
+        ]
+        s = self._session(pkts)
+        assert s.status == "ANSWERED"
+        assert s.rejection_code is None, (
+            f"rejection_code should be None after auth challenge + successful retry, got {s.rejection_code}"
+        )
+
+    def test_401_then_answered_is_answered_not_rejected(self):
+        """INVITE → 401 → INVITE (retry) → 200 OK → BYE = ANSWERED, no rejection_code."""
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=401, ts_offset=0.1),
+            _pkt("ACK", ts_offset=0.2),
+            _pkt("INVITE", ts_offset=0.3),
+            _pkt(code=200, ts_offset=5.0),
+            _pkt("BYE", ts_offset=45.0),
+        ]
+        s = self._session(pkts)
+        assert s.status == "ANSWERED"
+        assert s.rejection_code is None
+
+    def test_407_with_no_retry_is_failed_not_rejected(self):
+        """INVITE → 407 (no retry) = FAILED, not REJECTED."""
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=407, ts_offset=0.1),
+        ]
+        s = self._session(pkts)
+        assert s.status == "FAILED"
+        assert s.status != "REJECTED", "407 with no retry must never be REJECTED"
+
+    def test_401_with_no_retry_is_failed_not_rejected(self):
+        """INVITE → 401 (no retry) = FAILED, not REJECTED."""
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=401, ts_offset=0.1),
+        ]
+        s = self._session(pkts)
+        assert s.status == "FAILED"
+        assert s.status != "REJECTED"
+
+    def test_407_does_not_contaminate_rejection_code_when_answered(self):
+        """talk_duration should be calculated from real answer time, not from 407 timestamp."""
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=407, ts_offset=0.5),
+            _pkt("ACK", ts_offset=0.6),
+            _pkt("INVITE", ts_offset=0.7),
+            _pkt(code=200, ts_offset=5.0),
+            _pkt("BYE", ts_offset=65.0),
+        ]
+        s = self._session(pkts)
+        assert s.status == "ANSWERED"
+        assert s.talk_duration is not None
+        assert s.talk_duration == pytest.approx(60.0, abs=0.1), (
+            f"talk_duration should be ~60s (answer to BYE), got {s.talk_duration}"
+        )
+
+
+class TestReInviteHandling:
+    """
+    Re-INVITEs during an established call (for hold/resume, codec renegotiation,
+    or call transfer) must not break call classification or timing calculations.
+    """
+
+    def _session(self, pkts) -> CallSession:
+        s = CallSession(call_id=pkts[0].call_id)
+        s.packets = pkts
+        return classify_session(s)
+
+    def test_reinvite_for_hold_does_not_change_status(self):
+        """Answered call with a mid-call re-INVITE (hold) stays ANSWERED."""
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=180, ts_offset=1),
+            _pkt(code=200, ts_offset=5),
+            _pkt("ACK", ts_offset=5.1),
+            _pkt("INVITE", ts_offset=30),    # re-INVITE for hold
+            _pkt(code=200, ts_offset=30.1),  # 200 to re-INVITE
+            _pkt("ACK", ts_offset=30.2),
+            _pkt("BYE", ts_offset=120),
+        ]
+        s = self._session(pkts)
+        assert s.status == "ANSWERED"
+
+    def test_reinvite_talk_duration_uses_first_answer(self):
+        """talk_duration counts from the first 200 OK (real answer), not from re-INVITE 200."""
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=180, ts_offset=1),
+            _pkt(code=200, ts_offset=5),     # real answer at t=5
+            _pkt("ACK", ts_offset=5.1),
+            _pkt("INVITE", ts_offset=30),
+            _pkt(code=200, ts_offset=30.1),  # re-INVITE answer (must NOT reset answer_time)
+            _pkt("BYE", ts_offset=120),      # BYE at t=120 → talk = 115s
+        ]
+        s = self._session(pkts)
+        assert s.talk_duration == pytest.approx(115.0, abs=0.1)
+
+    def test_refer_transfer_stays_answered(self):
+        """Call with a REFER (blind transfer) mid-call stays ANSWERED."""
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=180, ts_offset=1),
+            _pkt(code=200, ts_offset=5),
+            _pkt("ACK", ts_offset=5.1),
+            _pkt("REFER", ts_offset=30),
+            _pkt(code=202, ts_offset=30.1),
+            _pkt("BYE", ts_offset=35),
+        ]
+        s = self._session(pkts)
+        assert s.status == "ANSWERED"
+        assert s.talk_duration is not None and s.talk_duration > 0
+
+    def test_cancel_after_answered_call_stays_answered(self):
+        """
+        If a CANCEL arrives after the call was already answered (edge case in some
+        PBXs during hold timeout), the call must remain ANSWERED, not flip to MISSED.
+        """
+        pkts = [
+            _pkt("INVITE", ts_offset=0),
+            _pkt(code=180, ts_offset=1),
+            _pkt(code=200, ts_offset=5),     # answered
+            _pkt("ACK", ts_offset=5.1),
+            _pkt("INVITE", ts_offset=30),    # hold re-INVITE
+            _pkt(code=200, ts_offset=30.1),
+            _pkt("CANCEL", ts_offset=60),    # CANCEL during hold (unusual but observed)
+            _pkt(code=487, ts_offset=60.1),
+        ]
+        s = self._session(pkts)
+        assert s.status == "ANSWERED", (
+            "A call that was answered must stay ANSWERED even if a late CANCEL arrives"
+        )
