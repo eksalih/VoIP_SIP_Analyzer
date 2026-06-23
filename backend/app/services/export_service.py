@@ -161,7 +161,6 @@ async def generate_pdf(
 
     total = len(calls)
     answered = counts.get("ANSWERED", 0)
-    success_rate = round(answered / total * 100, 1) if total else 0.0
 
     # ── Document setup ────────────────────────────────────────────────────
     buf = io.BytesIO()
@@ -224,6 +223,16 @@ async def generate_pdf(
         leading=10,
         textColor=colors.HexColor("#24292f"),
     )
+    # Separate style for table header cells — white text so it's readable
+    # against the dark (#0d1117) header row background.
+    header_cell_style = ParagraphStyle(
+        "HeaderCell",
+        parent=base["Normal"],
+        fontSize=7.5,
+        leading=10,
+        fontName="Helvetica-Bold",
+        textColor=colors.white,
+    )
     mono_style = ParagraphStyle(
         "Mono",
         parent=base["Normal"],
@@ -274,16 +283,13 @@ async def generate_pdf(
     story.append(Spacer(1, 6 * mm))
 
     # ── KPI row ───────────────────────────────────────────────────────────
-    verdict_color = "#1a7f37" if success_rate >= 80 else "#9a6700" if success_rate >= 50 else "#cf222e"
-    verdict_text = "PASS" if success_rate >= 80 else "PARTIAL" if success_rate >= 50 else "FAIL"
-
     kpi_rows = [[
-        _kpi_cell("Total Calls", str(total), "#0d1117", base),
-        _kpi_cell("Answered", str(answered), "#1a7f37", base),
-        _kpi_cell("Missed", str(counts.get("MISSED", 0)), "#9a6700", base),
-        _kpi_cell("Rejected", str(counts.get("REJECTED", 0)), "#cf222e", base),
-        _kpi_cell("Success Rate", f"{success_rate}%", "#0969da", base),
-        _kpi_cell("Verdict", verdict_text, verdict_color, base),
+        _kpi_cell("Total Calls",  str(total),                          "#0d1117", base),
+        _kpi_cell("Answered",     str(answered),                       "#1a7f37", base),
+        _kpi_cell("Missed",       str(counts.get("MISSED", 0)),        "#9a6700", base),
+        _kpi_cell("Rejected",     str(counts.get("REJECTED", 0)),      "#cf222e", base),
+        _kpi_cell("Failed",       str(counts.get("FAILED", 0)),        "#57606a", base),
+        _kpi_cell("Cancelled",    str(counts.get("CANCELLED", 0)),     "#0969da", base),
     ]]
     kpi_table = Table(kpi_rows, colWidths=[W / 6] * 6)
     kpi_table.setStyle(TableStyle([
@@ -293,7 +299,6 @@ async def generate_pdf(
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("TOPPADDING", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("ROUNDEDCORNERS", [4, 4, 4, 4]),
     ]))
     story.append(kpi_table)
     story.append(Spacer(1, 8 * mm))
@@ -333,13 +338,13 @@ async def generate_pdf(
 
     col_w = [W * p for p in [0.32, 0.10, 0.10, 0.12, 0.08, 0.08, 0.20]]
     table_data = [[
-        Paragraph("<b>Call-ID</b>", cell_style),
-        Paragraph("<b>Caller</b>", cell_style),
-        Paragraph("<b>Called</b>", cell_style),
-        Paragraph("<b>Start Time</b>", cell_style),
-        Paragraph("<b>Ring</b>", cell_style),
-        Paragraph("<b>Talk</b>", cell_style),
-        Paragraph("<b>Status</b>", cell_style),
+        Paragraph("Call-ID",     header_cell_style),
+        Paragraph("Caller",      header_cell_style),
+        Paragraph("Called",      header_cell_style),
+        Paragraph("Start Time",  header_cell_style),
+        Paragraph("Ring",        header_cell_style),
+        Paragraph("Talk",        header_cell_style),
+        Paragraph("Status",      header_cell_style),
     ]]
 
     for c in calls:
