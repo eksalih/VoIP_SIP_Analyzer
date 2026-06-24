@@ -48,7 +48,22 @@ async def process_pcap(
     db.add(capture_file)
     await db.flush()  # assigns capture_file.id
 
-    packets = parse_pcap_file(file_path)
+    try:
+        packets = parse_pcap_file(file_path)
+    except ValueError as e:
+        # Raised by parse_pcap_file for detectable problems (e.g. SIP-over-TLS).
+        # Return a clean error response rather than letting a 500 propagate.
+        capture_file.packets_parsed = 0
+        capture_file.calls_found = 0
+        capture_file.processing_time_seconds = round(time.monotonic() - start, 3)
+        await db.flush()
+        return {
+            "status": "error",
+            "message": str(e),
+            "file": filename,
+            "capture_file_id": capture_file.id,
+            "calls_processed": 0,
+        }
 
     if not packets:
         capture_file.packets_parsed = 0

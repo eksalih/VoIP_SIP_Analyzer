@@ -1,10 +1,12 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional
 from app.models.call import CallStatus
 
 
 class SIPEventSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     timestamp: Optional[datetime] = None
     sip_method: Optional[str] = None
@@ -15,11 +17,10 @@ class SIPEventSchema(BaseModel):
     raw_message: Optional[str] = None
     sequence_number: Optional[int] = None
 
-    class Config:
-        from_attributes = True
-
 
 class CallSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     capture_file_id: Optional[int] = None
     call_id: str
@@ -43,15 +44,14 @@ class CallSchema(BaseModel):
     rejection_reason: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
 
 class CallDetailSchema(CallSchema):
     events: list[SIPEventSchema] = []
 
 
 class CaptureFileSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     filename: str
     file_size_bytes: Optional[int] = None
@@ -65,9 +65,6 @@ class CaptureFileSchema(BaseModel):
     processing_time_seconds: Optional[float] = None
     uploaded_at: Optional[datetime] = None
     label: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class AnalyticsSchema(BaseModel):

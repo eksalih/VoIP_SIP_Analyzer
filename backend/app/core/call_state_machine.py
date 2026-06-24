@@ -12,15 +12,19 @@ from app.core.sip_parser import SIPPacket
 logger = logging.getLogger(__name__)
 
 # SIP response code buckets
-# NOTE: 487 is intentionally excluded — it is the normal response to CANCEL, not a rejection
+# NOTE: 487 is intentionally excluded — it is the normal response to CANCEL, not a rejection.
+# NOTE: 401/407 are intentionally excluded — they are auth challenges, not rejections.
+#   A 401/407 followed by a successful retry should produce status=ANSWERED with no
+#   rejection_code. A 401/407 with no retry produces status=FAILED (auth failure),
+#   which is distinct from REJECTED (user actively declined).
 REJECTION_CODES = {486, 603, 600, 480}
 BUSY_CODES = {486, 600}
 DECLINE_CODES = {603}
 UNAVAILABLE_CODES = {480}
-FAILURE_CODES = {400, 401, 403, 404, 405, 407, 408, 410, 415, 420, 421,
-                  423, 481, 482, 483, 484, 485, 488, 489, 491, 493,
-                  500, 501, 502, 503, 504, 505, 513,
-                  600, 603, 604, 606}
+
+# Auth challenge codes — provisional responses that indicate the UA needs to
+# re-send the INVITE with credentials. They are NOT call failures on their own.
+AUTH_CHALLENGE_CODES = {401, 407}
 
 # Methods that indicate a real call session (filter out pure REGISTER/OPTIONS ghost sessions)
 CALL_METHODS = {"INVITE", "BYE", "CANCEL", "ACK", "PRACK", "UPDATE", "REFER", "INFO"}
@@ -187,6 +191,11 @@ def classify_session(session: CallSession) -> CallSession:
                     session.has_answer = True
                     session.answer_time = pkt.timestamp
                     session.sip_result_code = 200
+                    # If end_time was tentatively set by an auth challenge (401/407)
+                    # earlier in the flow, clear it — the call is now properly connected
+                    # and end_time will be set by the BYE instead.
+                    if session.end_time and not session.has_bye:
+                        session.end_time = None
 
             elif code == 487:
                 # 487 Request Terminated — the UA's confirmation that CANCEL was processed.
@@ -196,8 +205,22 @@ def classify_session(session: CallSession) -> CallSession:
                     session.end_time = pkt.timestamp
                 # Explicitly do NOT set rejection_code here.
 
+            elif code in AUTH_CHALLENGE_CODES:
+                # 401 Unauthorized / 407 Proxy Auth Required — these are auth challenges,
+                # not call rejections. The UA is expected to re-send the INVITE with
+                # credentials. If it does and succeeds, the call should appear as ANSWERED
+                # with no rejection_code. If no retry follows, classify_session will see
+                # has_invite=True with no answer and produce FAILED, which is correct.
+                # We record auth_challenged for diagnostic use without polluting rejection_code.
+                session._auth_challenged = True
+                if not session.end_time and pkt.timestamp:
+                    session.end_time = pkt.timestamp
+                # Do NOT set rejection_code — auth challenge ≠ rejection.
+
             elif code in REJECTION_CODES or (400 <= code < 700):
-                # Hard rejection or signaling failure
+                # Hard rejection (486 Busy Here, 603 Decline, etc.) or signaling failure.
+                # Auth challenge codes (401/407) are explicitly excluded above — they
+                # never reach this branch.
                 if not session.rejection_code:
                     session.rejection_code = code
                     session.rejection_reason = pkt.response_text or _code_to_reason(code)
