@@ -14,10 +14,12 @@ from sqlalchemy import select
 
 from app.core.sip_parser import parse_pcap_file
 from app.core.call_state_machine import process_pcap_sessions, CallSession
+from app.core.rtp_analyzer import analyze_rtp, RTPStreamMetrics
 from app.models.call import Call, CallStatus
 from app.models.sip_event import SIPEvent
 from app.models.test_run import TestRun
 from app.models.capture_file import CaptureFile
+from app.models.rtp_stream import RTPStream
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +83,12 @@ async def process_pcap(
     sessions = process_pcap_sessions(packets)
     calls_saved = 0
     test_results = []
+    call_db_map: dict[str, Call] = {}
 
     for session in sessions:
         call = await _upsert_call(session, capture_file.id, db)
         await _save_events(session, call, db)
+        call_db_map[session.call_id] = call
 
         if expected_status:
             tr = await _save_test_run(
@@ -98,6 +102,17 @@ async def process_pcap(
             })
 
         calls_saved += 1
+
+    # ── RTP analysis (best-effort, never fails the upload) ────────────────
+    sip_packet_map = {s.call_id: s.packets for s in sessions}
+    try:
+        rtp_results = analyze_rtp(file_path, sessions, sip_packet_map)
+        for call_id, metrics_list in rtp_results.items():
+            db_call = call_db_map.get(call_id)
+            if db_call:
+                await _save_rtp_streams(metrics_list, db_call, db)
+    except Exception as e:
+        logger.warning(f"RTP analysis failed (non-fatal): {e}")
 
     elapsed = round(time.monotonic() - start, 3)
     summary = _build_summary(sessions)
@@ -238,6 +253,35 @@ async def _upsert_call(session: CallSession, capture_file_id: int, db: AsyncSess
 
     await db.flush()
     return call
+
+
+async def _save_rtp_streams(
+    metrics_list: list[RTPStreamMetrics],
+    call: Call,
+    db: AsyncSession,
+) -> None:
+    """Persist RTP stream quality metrics for one call."""
+    for m in metrics_list:
+        stream = RTPStream(
+            call_id=call.id,
+            source_ip=m.source_ip,
+            source_port=m.source_port,
+            destination_ip=m.destination_ip,
+            destination_port=m.destination_port,
+            ssrc=m.ssrc,
+            payload_type=m.payload_type,
+            codec=m.codec,
+            packet_count=m.packet_count,
+            expected_packets=m.expected_packets,
+            packet_loss_count=m.packet_loss_count,
+            packet_loss_pct=m.packet_loss_pct,
+            jitter_ms=m.jitter_ms,
+            jitter_max_ms=m.jitter_max_ms,
+            duration_seconds=m.duration_seconds,
+            is_one_way=m.is_one_way,
+        )
+        db.add(stream)
+    await db.flush()
 
 
 async def _save_events(session: CallSession, call: Call, db: AsyncSession):

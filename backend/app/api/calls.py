@@ -8,7 +8,8 @@ from app.models.call import Call
 from app.models.sip_event import SIPEvent
 from app.models.test_run import TestRun
 from app.models.capture_file import CaptureFile
-from app.schemas.schemas import CallSchema, CallDetailSchema, SIPEventSchema
+from app.models.rtp_stream import RTPStream
+from app.schemas.schemas import CallSchema, CallDetailSchema, SIPEventSchema, RTPStreamSchema
 
 router = APIRouter()
 
@@ -107,6 +108,19 @@ async def get_call_events(call_id: int, db: AsyncSession = Depends(get_db)):
         select(SIPEvent)
         .where(SIPEvent.call_id == call_id)
         .order_by(SIPEvent.timestamp)
+    )
+    return result.scalars().all()
+
+
+@router.get("/{call_id}/media", response_model=list[RTPStreamSchema])
+async def get_call_media(call_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Get RTP media quality metrics for a call.
+    Returns an empty list for MISSED/REJECTED/CANCELLED calls,
+    or for captures that don't include RTP alongside SIP signaling.
+    """
+    result = await db.execute(
+        select(RTPStream).where(RTPStream.call_id == call_id)
     )
     return result.scalars().all()
 

@@ -29,7 +29,7 @@ class Base(DeclarativeBase):
 
 
 async def init_db():
-    from app.models import call, sip_event, test_run, capture_file  # noqa: F401
+    from app.models import call, sip_event, test_run, capture_file, rtp_stream  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
