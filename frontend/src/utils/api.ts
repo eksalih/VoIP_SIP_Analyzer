@@ -25,6 +25,8 @@ export const api = {
 
   getCallEvents: (id: number) => apiFetch<Call["events"]>(`/calls/${id}/events`),
 
+  getCallMedia: (id: number) => apiFetch<import("../types").RTPStream[]>(`/calls/${id}/media`),
+
   deleteCall: (id: number) => apiFetch<void>(`/calls/${id}`, { method: "DELETE" }),
 
   clearAllData: () => apiFetch<{ status: string; message: string; deleted: Record<string, number> }>(

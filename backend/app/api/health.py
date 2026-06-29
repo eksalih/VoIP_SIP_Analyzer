@@ -16,6 +16,6 @@ async def health_check(db: AsyncSession = Depends(get_db)):
 
     return {
         "status": "ok",
-        "version": "1.4.0",
+        "version": "2.0.0",
         "database": db_status,
     }

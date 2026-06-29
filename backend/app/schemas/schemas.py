@@ -49,6 +49,27 @@ class CallDetailSchema(CallSchema):
     events: list[SIPEventSchema] = []
 
 
+class RTPStreamSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source_ip: Optional[str] = None
+    source_port: Optional[int] = None
+    destination_ip: Optional[str] = None
+    destination_port: Optional[int] = None
+    ssrc: Optional[str] = None
+    payload_type: Optional[int] = None
+    codec: Optional[str] = None
+    packet_count: Optional[int] = None
+    expected_packets: Optional[int] = None
+    packet_loss_count: Optional[int] = None
+    packet_loss_pct: Optional[float] = None
+    jitter_ms: Optional[float] = None
+    jitter_max_ms: Optional[float] = None
+    duration_seconds: Optional[float] = None
+    is_one_way: bool = False
+
+
 class CaptureFileSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

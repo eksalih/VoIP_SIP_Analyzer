@@ -12,6 +12,25 @@ export interface SIPEvent {
   sequence_number: number | null;
 }
 
+export interface RTPStream {
+  id: number;
+  source_ip: string | null;
+  source_port: number | null;
+  destination_ip: string | null;
+  destination_port: number | null;
+  ssrc: string | null;
+  payload_type: number | null;
+  codec: string | null;
+  packet_count: number | null;
+  expected_packets: number | null;
+  packet_loss_count: number | null;
+  packet_loss_pct: number | null;
+  jitter_ms: number | null;
+  jitter_max_ms: number | null;
+  duration_seconds: number | null;
+  is_one_way: boolean;
+}
+
 export interface Call {
   id: number;
   capture_file_id: number | null;
