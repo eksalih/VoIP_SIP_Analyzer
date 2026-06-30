@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "../utils/api";
 import { formatDateTime, formatDuration } from "../utils/format";
 import StatusBadge from "../components/shared/StatusBadge";
+import VendorBadge from "../components/shared/VendorBadge";
 import SIPLadder from "../components/calls/SIPLadder";
 import MediaQuality from "../components/calls/MediaQuality";
 import type { Call, SIPEvent, RTPStream } from "../types";
@@ -90,6 +91,14 @@ export default function CallDetail({ callId, onBack }: Props) {
           <div className="summary-card rejection">
             <span className="card-label">Rejection Reason</span>
             <span className="card-value">{call.sip_result_code} {call.rejection_reason}</span>
+          </div>
+        )}
+        {call.vendor && (
+          <div className="summary-card">
+            <span className="card-label">Vendor</span>
+            <span className="card-value">
+              <VendorBadge vendor={call.vendor} category={call.vendor_category} size="md" />
+            </span>
           </div>
         )}
         {call.user_agent && (

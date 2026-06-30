@@ -21,6 +21,7 @@ async def list_calls(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     capture_file_id: Optional[int] = Query(None, description="Filter to calls from a single uploaded capture file"),
+    vendor: Optional[str] = Query(None, description="Filter to calls from a detected vendor, e.g. Yeastar"),
     db: AsyncSession = Depends(get_db),
 ):
     """List all calls with optional filters."""
@@ -31,6 +32,9 @@ async def list_calls(
 
     if capture_file_id is not None:
         q = q.where(Call.capture_file_id == capture_file_id)
+
+    if vendor:
+        q = q.where(Call.vendor == vendor)
 
     if search:
         q = q.where(

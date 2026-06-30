@@ -12,12 +12,13 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getCalls: (params?: { status?: string; search?: string; limit?: number; captureFileId?: number }) => {
+  getCalls: (params?: { status?: string; search?: string; limit?: number; captureFileId?: number; vendor?: string }) => {
     const q = new URLSearchParams();
     if (params?.status) q.set("status", params.status);
     if (params?.search) q.set("search", params.search);
     if (params?.limit) q.set("limit", String(params.limit));
     if (params?.captureFileId) q.set("capture_file_id", String(params.captureFileId));
+    if (params?.vendor) q.set("vendor", params.vendor);
     return apiFetch<Call[]>(`/calls?${q.toString()}`);
   },
 
@@ -57,6 +58,13 @@ export const api = {
   },
 
   getCaptureFile: (id: number) => apiFetch<CaptureFile>(`/capture-files/${id}`),
+
+  patchCaptureFile: (id: number, label: string | null) =>
+    apiFetch<CaptureFile>(`/capture-files/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    }),
 
   deleteCaptureFile: (id: number) => apiFetch<void>(`/capture-files/${id}`, { method: "DELETE" }),
 

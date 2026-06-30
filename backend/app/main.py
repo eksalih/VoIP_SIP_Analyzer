@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VoIP SIP Analyzer",
     description="SIP packet capture analysis and call validation platform",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
 )
 

@@ -41,6 +41,8 @@ export interface Call {
   source_ip: string | null;
   destination_ip: string | null;
   user_agent: string | null;
+  vendor: string | null;
+  vendor_category: string | null;
   sip_domain: string | null;
   branch_id: string | null;
   start_time: string | null;
@@ -85,6 +87,10 @@ export interface Analytics {
   avg_talk_duration: number | null;
   calls_by_day: { date: string; count: number }[];
   status_distribution: { status: string; count: number; color: string }[];
+  rtp_streams_total: number;
+  rtp_avg_jitter_ms: number | null;
+  rtp_avg_loss_pct: number | null;
+  rtp_one_way_count: number;
 }
 
 export interface UploadResult {
