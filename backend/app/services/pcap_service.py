@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.core.sip_parser import parse_pcap_file
 from app.core.call_state_machine import process_pcap_sessions, CallSession
 from app.core.rtp_analyzer import analyze_rtp, RTPStreamMetrics
+from app.core.vendor_detector import detect_vendor, detect_vendor_category
 from app.models.call import Call, CallStatus
 from app.models.sip_event import SIPEvent
 from app.models.test_run import TestRun
@@ -217,6 +218,8 @@ async def _upsert_call(session: CallSession, capture_file_id: int, db: AsyncSess
     call = result.scalar_one_or_none()
 
     status_enum = _map_status(session.status)
+    vendor = detect_vendor(session.user_agent)
+    vendor_category = detect_vendor_category(session.user_agent)
 
     if call:
         call.status = status_enum
@@ -236,6 +239,8 @@ async def _upsert_call(session: CallSession, capture_file_id: int, db: AsyncSess
             source_ip=session.source_ip,
             destination_ip=session.destination_ip,
             user_agent=session.user_agent,
+            vendor=vendor,
+            vendor_category=vendor_category,
             sip_domain=session.sip_domain,
             branch_id=session.branch_id,
             start_time=session.invite_time,

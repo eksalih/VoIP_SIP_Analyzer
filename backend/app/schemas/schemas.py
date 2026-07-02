@@ -30,6 +30,8 @@ class CallSchema(BaseModel):
     source_ip: Optional[str] = None
     destination_ip: Optional[str] = None
     user_agent: Optional[str] = None
+    vendor: Optional[str] = None
+    vendor_category: Optional[str] = None
     sip_domain: Optional[str] = None
     branch_id: Optional[str] = None
     start_time: Optional[datetime] = None
@@ -100,6 +102,11 @@ class AnalyticsSchema(BaseModel):
     avg_talk_duration: Optional[float] = None
     calls_by_day: list[dict] = []
     status_distribution: list[dict] = []
+    # RTP / media quality aggregates
+    rtp_streams_total: int = 0
+    rtp_avg_jitter_ms: Optional[float] = None
+    rtp_avg_loss_pct: Optional[float] = None
+    rtp_one_way_count: int = 0
 
 
 class TestResultSchema(BaseModel):

@@ -33,6 +33,8 @@ class Call(Base):
     source_ip = Column(String, nullable=True)
     destination_ip = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
+    vendor = Column(String, nullable=True)            # detected from user_agent, e.g. "Yeastar"
+    vendor_category = Column(String, nullable=True)   # "pbx" | "phone" | "softphone"
     sip_domain = Column(String, nullable=True)
     branch_id = Column(String, nullable=True)
 

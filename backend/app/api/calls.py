@@ -21,6 +21,7 @@ async def list_calls(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     capture_file_id: Optional[int] = Query(None, description="Filter to calls from a single uploaded capture file"),
+    vendor: Optional[str] = Query(None, description="Filter to calls from a detected vendor, e.g. Yeastar"),
     db: AsyncSession = Depends(get_db),
 ):
     """List all calls with optional filters."""
@@ -31,6 +32,9 @@ async def list_calls(
 
     if capture_file_id is not None:
         q = q.where(Call.capture_file_id == capture_file_id)
+
+    if vendor:
+        q = q.where(Call.vendor == vendor)
 
     if search:
         q = q.where(
@@ -97,8 +101,21 @@ async def get_call(call_id: int, db: AsyncSession = Depends(get_db)):
         .where(SIPEvent.call_id == call.id)
         .order_by(SIPEvent.timestamp)
     )
-    call.events = events_result.scalars().all()
-    return call
+    events = events_result.scalars().all()
+
+    # IMPORTANT: do not assign to `call.events` directly. Call.events is a
+    # SQLAlchemy ORM relationship; assigning to it triggers the ORM's
+    # collection-tracking machinery, which first lazy-loads the EXISTING
+    # relationship value (to compute what changed) before overwriting it.
+    # That lazy load issues a synchronous query that can run outside the
+    # async greenlet context, causing:
+    #   sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called
+    # Building the Pydantic response directly from the already-fetched data
+    # avoids touching the ORM relationship at all.
+    return CallDetailSchema(
+        **CallSchema.model_validate(call).model_dump(),
+        events=[SIPEventSchema.model_validate(e) for e in events],
+    )
 
 
 @router.get("/{call_id}/events", response_model=list[SIPEventSchema])

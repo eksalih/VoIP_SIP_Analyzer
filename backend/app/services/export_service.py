@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from app.models.call import Call, CallStatus
 from app.models.capture_file import CaptureFile
+from app.models.rtp_stream import RTPStream
 
 
 # ── Status display helpers ────────────────────────────────────────────────
@@ -58,8 +59,8 @@ def _fmt_dt(dt: datetime | None) -> str:
 async def _fetch_calls(
     db: AsyncSession,
     capture_file_id: Optional[int] = None,
-) -> tuple[list[Call], Optional[CaptureFile]]:
-    """Fetch calls (optionally scoped to one capture file) and the file metadata."""
+) -> tuple[list[Call], Optional[CaptureFile], dict[int, list[RTPStream]]]:
+    """Fetch calls, the capture file metadata, and RTP streams keyed by call.id."""
     q = select(Call).order_by(Call.start_time)
     if capture_file_id is not None:
         q = q.where(Call.capture_file_id == capture_file_id)
@@ -71,7 +72,15 @@ async def _fetch_calls(
         r2 = await db.execute(select(CaptureFile).where(CaptureFile.id == capture_file_id))
         cf = r2.scalar_one_or_none()
 
-    return list(calls), cf
+    # Fetch all RTP streams for these calls in one query
+    call_ids = [c.id for c in calls]
+    rtp_map: dict[int, list[RTPStream]] = {}
+    if call_ids:
+        r3 = await db.execute(select(RTPStream).where(RTPStream.call_id.in_(call_ids)))
+        for stream in r3.scalars().all():
+            rtp_map.setdefault(stream.call_id, []).append(stream)
+
+    return list(calls), cf, rtp_map
 
 
 # ── CSV export ────────────────────────────────────────────────────────────
@@ -84,7 +93,7 @@ async def generate_csv(
     Generate a CSV byte string of all calls (optionally filtered by capture file).
     Columns match the dashboard call table plus extra fields useful for analysis.
     """
-    calls, _ = await _fetch_calls(db, capture_file_id)
+    calls, _, _ = await _fetch_calls(db, capture_file_id)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -151,7 +160,7 @@ async def generate_pdf(
     )
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
-    calls, cf = await _fetch_calls(db, capture_file_id)
+    calls, cf, rtp_map = await _fetch_calls(db, capture_file_id)
 
     # ── Count statuses ────────────────────────────────────────────────────
     counts: dict[str, int] = {}
@@ -336,7 +345,7 @@ async def generate_pdf(
     story.append(Paragraph("Call Detail", section_style))
     story.append(Spacer(1, 2 * mm))
 
-    col_w = [W * p for p in [0.32, 0.10, 0.10, 0.12, 0.08, 0.08, 0.20]]
+    col_w = [W * p for p in [0.26, 0.09, 0.09, 0.11, 0.07, 0.07, 0.16, 0.15]]
     table_data = [[
         Paragraph("Call-ID",     header_cell_style),
         Paragraph("Caller",      header_cell_style),
@@ -345,6 +354,7 @@ async def generate_pdf(
         Paragraph("Ring",        header_cell_style),
         Paragraph("Talk",        header_cell_style),
         Paragraph("Status",      header_cell_style),
+        Paragraph("Media",       header_cell_style),
     ]]
 
     for c in calls:
@@ -353,11 +363,28 @@ async def generate_pdf(
         hex_col = "#{:02x}{:02x}{:02x}".format(
             int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255)
         )
-        # Truncate long call IDs for readability
-        call_id_display = c.call_id if len(c.call_id) <= 40 else c.call_id[:18] + "..." + c.call_id[-14:]
+        call_id_display = c.call_id if len(c.call_id) <= 36 else c.call_id[:16] + "..." + c.call_id[-12:]
         status_label = STATUS_LABELS.get(status_str, status_str)
         if c.rejection_reason:
             status_label += f"\n{c.sip_result_code} {c.rejection_reason}"
+
+        # Build media summary for this call
+        streams = rtp_map.get(c.id, [])
+        if streams:
+            one_way = any(s.is_one_way for s in streams)
+            avg_jitter = sum(s.jitter_ms or 0 for s in streams) / len(streams)
+            avg_loss   = sum(s.packet_loss_pct or 0 for s in streams) / len(streams)
+            codec      = streams[0].codec or "—"
+            if one_way:
+                media_text = f'<font color="#cf222e">⚠ One-way\n{codec}</font>'
+            elif avg_loss > 5 or avg_jitter > 50:
+                media_text = f'<font color="#e36209">Poor\n{codec} J:{avg_jitter:.0f}ms L:{avg_loss:.0f}%</font>'
+            elif avg_loss > 1 or avg_jitter > 20:
+                media_text = f'<font color="#9a6700">Fair\n{codec} J:{avg_jitter:.0f}ms</font>'
+            else:
+                media_text = f'<font color="#1a7f37">Good\n{codec}</font>'
+        else:
+            media_text = '<font color="#8b949e">—</font>'
 
         table_data.append([
             Paragraph(f'<font name="Courier" size="6">{call_id_display}</font>', cell_style),
@@ -367,6 +394,7 @@ async def generate_pdf(
             Paragraph(_fmt_duration(c.ring_duration), cell_style),
             Paragraph(_fmt_duration(c.talk_duration), cell_style),
             Paragraph(f'<b><font color="{hex_col}">{status_label}</font></b>', cell_style),
+            Paragraph(media_text, cell_style),
         ])
 
     call_table = Table(table_data, colWidths=col_w, repeatRows=1)
@@ -386,6 +414,79 @@ async def generate_pdf(
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
     ]))
     story.append(call_table)
+
+    # ── Media Quality Summary ─────────────────────────────────────────────
+    # Collect all RTP streams for calls in this report
+    all_streams = []
+    one_way_calls = []
+    for c in calls:
+        streams = rtp_map.get(c.id, [])
+        all_streams.extend(streams)
+        if any(s.is_one_way for s in streams):
+            one_way_calls.append(c.caller or c.call_id[:20])
+
+    if all_streams:
+        story.append(Spacer(1, 8 * mm))
+        story.append(Paragraph("Media Quality Summary", section_style))
+        story.append(Spacer(1, 3 * mm))
+
+        # Aggregate metrics across all streams
+        avg_jitter  = sum(s.jitter_ms or 0 for s in all_streams) / len(all_streams)
+        max_jitter  = max(s.jitter_max_ms or 0 for s in all_streams)
+        avg_loss    = sum(s.packet_loss_pct or 0 for s in all_streams) / len(all_streams)
+        total_pkts  = sum(s.packet_count or 0 for s in all_streams)
+        lost_pkts   = sum(s.packet_loss_count or 0 for s in all_streams)
+        codecs      = sorted({s.codec for s in all_streams if s.codec})
+        n_one_way   = len(one_way_calls)
+
+        # Quality rating
+        if avg_loss > 5 or avg_jitter > 50 or n_one_way > 0:
+            qual_txt, qual_color = "Poor", "#cf222e"
+        elif avg_loss > 1 or avg_jitter > 20:
+            qual_txt, qual_color = "Fair", "#9a6700"
+        else:
+            qual_txt, qual_color = "Good", "#1a7f37"
+
+        media_kpi_rows = [[
+            _kpi_cell("Streams",       str(len(all_streams)),           "#0d1117", base),
+            _kpi_cell("Avg Jitter",    f"{avg_jitter:.1f} ms",          "#0969da", base),
+            _kpi_cell("Max Jitter",    f"{max_jitter:.1f} ms",          "#0969da", base),
+            _kpi_cell("Avg Loss",      f"{avg_loss:.1f}%",              "#cf222e" if avg_loss > 1 else "#1a7f37", base),
+            _kpi_cell("Total Packets", str(total_pkts),                 "#57606a", base),
+            _kpi_cell("Quality",       qual_txt,                        qual_color, base),
+        ]]
+        media_kpi = Table(media_kpi_rows, colWidths=[W / 6] * 6)
+        media_kpi.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f6f8fa")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d0d7de")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(media_kpi)
+
+        # Codec and one-way audio notes
+        if codecs or one_way_calls:
+            story.append(Spacer(1, 4 * mm))
+            notes = []
+            if codecs:
+                notes.append(f"Codecs detected: {', '.join(codecs)}")
+            if one_way_calls:
+                notes.append(
+                    f"⚠ One-way audio detected on {n_one_way} call(s): "
+                    + ", ".join(one_way_calls[:5])
+                    + (" …" if len(one_way_calls) > 5 else "")
+                )
+            warn_style = ParagraphStyle(
+                "MediaNote", parent=base["Normal"], fontSize=8,
+                textColor=colors.HexColor("#57606a"), spaceAfter=3,
+            )
+            for note in notes:
+                color = "#cf222e" if "⚠" in note else "#57606a"
+                story.append(Paragraph(
+                    f'<font color="{color}">{note}</font>', warn_style
+                ))
 
     # ── Footer note ───────────────────────────────────────────────────────
     story.append(Spacer(1, 8 * mm))

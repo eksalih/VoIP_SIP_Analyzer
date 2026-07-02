@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "../utils/api";
 import { formatDateTime, formatDuration, shortCallId } from "../utils/format";
 import StatusBadge from "../components/shared/StatusBadge";
+import VendorBadge from "../components/shared/VendorBadge";
 import UploadPanel from "../components/calls/UploadPanel";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
 import CaptureFileCard from "../components/calls/CaptureFileCard";
@@ -33,6 +34,7 @@ export default function Dashboard({ onSelectCall }: Props) {
   const [loading, setLoading] = useState(true);
   const [filesLoading, setFilesLoading] = useState(true);
   const [filter, setFilter] = useState<CallStatus | "ALL">("ALL");
+  const [vendorFilter, setVendorFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("files");
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
@@ -41,6 +43,7 @@ export default function Dashboard({ onSelectCall }: Props) {
   const [clearedBanner, setClearedBanner] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<CaptureFile | null>(null);
+  const [knownVendors, setKnownVendors] = useState<string[]>([]);
 
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
@@ -54,11 +57,24 @@ export default function Dashboard({ onSelectCall }: Props) {
     }
   }, []);
 
+  // Derive the distinct vendor list from an unfiltered call fetch, so the
+  // vendor dropdown options don't disappear when a status/vendor filter is active.
+  const loadKnownVendors = useCallback(async () => {
+    try {
+      const all = await api.getCalls({ limit: 500 });
+      const vendors = Array.from(new Set(all.map(c => c.vendor).filter((v): v is string => !!v))).sort();
+      setKnownVendors(vendors);
+    } catch {
+      setKnownVendors([]);
+    }
+  }, []);
+
   const loadCalls = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.getCalls({
         status: filter !== "ALL" ? filter : undefined,
+        vendor: vendorFilter !== "ALL" ? vendorFilter : undefined,
         search: search || undefined,
         limit: 200,
         captureFileId: viewMode === "files" && selectedFileId ? selectedFileId : undefined,
@@ -69,15 +85,16 @@ export default function Dashboard({ onSelectCall }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [filter, search, viewMode, selectedFileId]);
+  }, [filter, vendorFilter, search, viewMode, selectedFileId]);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
   useEffect(() => { loadCalls(); }, [loadCalls]);
+  useEffect(() => { loadKnownVendors(); }, [loadKnownVendors]);
 
   const handleUpload = async (result: UploadResult | BatchUploadResult) => {
     setUploadBanner(result);
     setClearedBanner(null);
-    await Promise.all([loadFiles(), loadCalls()]);
+    await Promise.all([loadFiles(), loadCalls(), loadKnownVendors()]);
     // Auto-select the newly uploaded file (single-upload case) so results are immediately visible
     if (!isBatchResult(result) && result.capture_file_id) {
       setSelectedFileId(result.capture_file_id);
@@ -95,7 +112,8 @@ export default function Dashboard({ onSelectCall }: Props) {
     );
     setUploadBanner(null);
     setSelectedFileId(null);
-    await Promise.all([loadFiles(), loadCalls()]);
+    setVendorFilter("ALL");
+    await Promise.all([loadFiles(), loadCalls(), loadKnownVendors()]);
   };
 
   const handleDeleteFile = async () => {
@@ -103,7 +121,7 @@ export default function Dashboard({ onSelectCall }: Props) {
     await api.deleteCaptureFile(fileToDelete.id);
     if (selectedFileId === fileToDelete.id) setSelectedFileId(null);
     setFileToDelete(null);
-    await Promise.all([loadFiles(), loadCalls()]);
+    await Promise.all([loadFiles(), loadCalls(), loadKnownVendors()]);
   };
 
   const totalCallsAcrossFiles = captureFiles.reduce((sum, f) => sum + (f.calls_found ?? 0), 0);
@@ -215,6 +233,11 @@ export default function Dashboard({ onSelectCall }: Props) {
                 selected={selectedFileId === f.id}
                 onClick={() => setSelectedFileId(selectedFileId === f.id ? null : f.id)}
                 onDelete={() => setFileToDelete(f)}
+                onLabelChange={(id, label) => {
+                  setCaptureFiles(prev => prev.map(cf =>
+                    cf.id === id ? { ...cf, label } : cf
+                  ));
+                }}
               />
             ))}
           </div>
@@ -240,6 +263,19 @@ export default function Dashboard({ onSelectCall }: Props) {
             </button>
           ))}
         </div>
+        {knownVendors.length > 0 && (
+          <select
+            className="vendor-select"
+            value={vendorFilter}
+            onChange={(e) => setVendorFilter(e.target.value)}
+            title="Filter by detected vendor"
+          >
+            <option value="ALL">All Vendors</option>
+            {knownVendors.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        )}
         <input
           className="search-input"
           placeholder="Search caller, called, or Call-ID…"
@@ -270,6 +306,7 @@ export default function Dashboard({ onSelectCall }: Props) {
                 <th>Call-ID</th>
                 <th>Caller</th>
                 <th>Called</th>
+                <th>Vendor</th>
                 <th>Start Time</th>
                 <th>Ring</th>
                 <th>Talk</th>
@@ -289,6 +326,9 @@ export default function Dashboard({ onSelectCall }: Props) {
                   </td>
                   <td>{call.caller || "—"}</td>
                   <td>{call.called || "—"}</td>
+                  <td>
+                    <VendorBadge vendor={call.vendor} category={call.vendor_category} />
+                  </td>
                   <td>{formatDateTime(call.start_time)}</td>
                   <td>{formatDuration(call.ring_duration)}</td>
                   <td>{formatDuration(call.talk_duration)}</td>
