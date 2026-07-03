@@ -4,7 +4,7 @@ sqlalchemy[asyncio]==2.0.35
 aiosqlite==0.20.0
 asyncpg==0.29.0
 pydantic==2.9.2
-python-multipart==0.0.12
+python-multipart==0.0.31
 aiofiles==24.1.0
 
 # Core PCAP parser -- pure Python, no external binary required.
