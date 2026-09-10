@@ -68,9 +68,11 @@ async def clear_all_data(
     events_count = (await db.execute(select(func.count(SIPEvent.id)))).scalar() or 0
     tests_count = (await db.execute(select(func.count(TestRun.id)))).scalar() or 0
     files_count = (await db.execute(select(func.count(CaptureFile.id)))).scalar() or 0
+    rtp_count = (await db.execute(select(func.count(RTPStream.id)))).scalar() or 0
 
-    # Delete children first (SIPEvent/TestRun reference Call; Call references CaptureFile).
+    # Delete children first (SIPEvent/TestRun/RTPStream reference Call; Call references CaptureFile).
     await db.execute(delete(SIPEvent))
+    await db.execute(delete(RTPStream))
     await db.execute(delete(TestRun))
     await db.execute(delete(Call))
     await db.execute(delete(CaptureFile))
@@ -82,6 +84,7 @@ async def clear_all_data(
         "deleted": {
             "calls": calls_count,
             "events": events_count,
+            "rtp_streams": rtp_count,
             "test_runs": tests_count,
             "capture_files": files_count,
         },

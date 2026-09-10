@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "../utils/api";
 import { formatDuration } from "../utils/format";
 import type { Analytics } from "../types";
@@ -20,9 +20,21 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api.getAnalytics().then(setData).finally(() => setLoading(false));
+  const loadAnalytics = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await api.getAnalytics();
+      setData(result);
+    } catch {
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadAnalytics();
+  }, [loadAnalytics]);
 
   if (loading) return <div className="loading-state"><div className="spinner" /><span>Loading analytics…</span></div>;
   if (!data)   return <div className="empty-state"><p>Could not load analytics.</p></div>;
@@ -33,9 +45,21 @@ export default function AnalyticsPage() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Analytics</h1>
-        <p className="page-subtitle">Aggregate call and media quality statistics across all captures</p>
+      <div className="page-header page-header-row">
+        <div>
+          <h1 className="page-title">Analytics</h1>
+          <p className="page-subtitle">Aggregate call and media quality statistics across all captures</p>
+        </div>
+        <div className="header-actions">
+          <button
+            className="refresh-btn"
+            onClick={() => loadAnalytics()}
+            disabled={loading}
+            title="Refresh analytics data"
+          >
+            🔄 Refresh
+          </button>
+        </div>
       </div>
 
       {/* Call KPIs */}
