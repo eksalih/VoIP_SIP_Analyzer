@@ -135,14 +135,67 @@
   color: var(--text-primary, #333);
 }
 
+.recording-player-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
 .recording-player {
   width: 100%;
-  margin-top: 0.75rem;
   outline: none;
+  border-radius: 4px;
 }
 
 .recording-player::-webkit-media-controls-panel {
   background: var(--bg-secondary, #f5f5f5);
+}
+
+/* Playback Speed Controls */
+.speed-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg-secondary, #f5f5f5);
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+
+.speed-label {
+  font-weight: 600;
+  color: var(--text-secondary, #666);
+  font-size: 0.9em;
+}
+
+.speed-btn {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border-color, #ddd);
+  background: white;
+  color: var(--text-primary, #333);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.85em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: 45px;
+  text-align: center;
+}
+
+.speed-btn:hover {
+  background: #f0f0f0;
+  border-color: var(--text-secondary, #666);
+}
+
+.speed-btn.active {
+  background: #0969da;
+  color: white;
+  border-color: #0969da;
+}
+
+.speed-btn.active:hover {
+  background: #0860ca;
 }
 
 /* Responsive */

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../../utils/api";
 import type { Recording } from "../../types";
 import "./AudioRecordings.css";
@@ -11,6 +11,8 @@ export default function AudioRecordings({ callId }: Props) {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [playbackSpeeds, setPlaybackSpeeds] = useState<{ [key: number]: number }>({});
+  const audioRefs = useRef<{ [key: number]: HTMLAudioElement }>({});
 
   useEffect(() => {
     setLoading(true);
@@ -29,6 +31,14 @@ export default function AudioRecordings({ callId }: Props) {
       })
       .finally(() => setLoading(false));
   }, [callId]);
+
+  const changeSpeed = (recordingId: number, speed: number) => {
+    const audio = audioRefs.current[recordingId];
+    if (audio) {
+      audio.playbackRate = speed;
+      setPlaybackSpeeds((prev) => ({ ...prev, [recordingId]: speed }));
+    }
+  };
 
   if (loading) {
     return (
@@ -108,10 +118,33 @@ export default function AudioRecordings({ callId }: Props) {
 
             {/* Inline player for successful recordings */}
             {(rec.status === "SUCCESS" || rec.status === "PARTIAL") && (
-              <audio controls className="recording-player">
-                <source src={rec.download_url} type="audio/wav" />
-                Your browser does not support the audio element.
-              </audio>
+              <div className="recording-player-container">
+                <audio
+                  ref={(el) => {
+                    if (el) audioRefs.current[rec.id] = el;
+                  }}
+                  controls
+                  className="recording-player"
+                >
+                  <source src={rec.download_url} type="audio/wav" />
+                  Your browser does not support the audio element.
+                </audio>
+
+                {/* Playback Speed Controls */}
+                <div className="speed-controls">
+                  <span className="speed-label">Speed:</span>
+                  {[0.5, 1, 1.5, 2].map((speed) => (
+                    <button
+                      key={speed}
+                      className={`speed-btn ${(playbackSpeeds[rec.id] || 1) === speed ? "active" : ""}`}
+                      onClick={() => changeSpeed(rec.id, speed)}
+                      title={`Playback speed: ${speed}x`}
+                    >
+                      {speed}x
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         ))}
