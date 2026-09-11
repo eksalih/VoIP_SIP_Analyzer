@@ -72,14 +72,18 @@ def extract_rtp_payloads_from_pcap(
     call_ids: Optional[set[str]] = None,
 ) -> dict[str, list[RTPPayload]]:
     """
-    Extract RTP payloads from PCAP file, grouped by SIP Call-ID.
+    Extract RTP payloads from PCAP file, grouped by direction (endpoint pair).
+
+    Note: RTP packets don't contain SIP Call-ID headers (they're binary audio data),
+    so we can't filter by Call-ID. Instead, we extract all RTP and group by
+    network direction. The call_id parameter is ignored but kept for API compatibility.
 
     Args:
         file_path: Path to PCAP/PCAPNG file
-        call_ids: If provided, only extract packets for these Call-IDs
+        call_ids: Ignored (kept for API compatibility)
 
     Returns:
-        Dict mapping Call-ID → list of RTPPayload objects
+        Dict with single key "ALL" → list of RTPPayload objects
     """
     try:
         from scapy.all import rdpcap, UDP, IP, Raw
@@ -87,73 +91,7 @@ def extract_rtp_payloads_from_pcap(
         logger.error("Scapy not available for RTP extraction")
         return {}
 
-    results: dict[str, list[RTPPayload]] = {}
-
-    try:
-        packets_by_call = _group_packets_by_call_id(file_path, call_ids)
-
-        for call_id, call_packets in packets_by_call.items():
-            rtp_payloads = []
-
-            for pkt in call_packets:
-                if not (pkt.haslayer(UDP) and pkt.haslayer(IP) and pkt.haslayer(Raw)):
-                    continue
-
-                payload = pkt[Raw].load
-                if len(payload) < 12:
-                    continue
-
-                # Parse RTP header
-                rtp_hdr = _parse_rtp_header(payload)
-                if rtp_hdr is None:
-                    continue
-
-                version, pt, seq, ts, ssrc = rtp_hdr
-
-                # Only extract known audio codecs
-                if pt not in CODEC_PT_MAP:
-                    continue
-
-                codec = CODEC_PT_MAP[pt]
-
-                # RTP payload is everything after the 12-byte header (+ CSRC list if present)
-                cc = (payload[0] & 0x0F)  # CSRC count
-                csrc_bytes = cc * 4
-                rtp_payload_start = 12 + csrc_bytes
-
-                if len(payload) <= rtp_payload_start:
-                    continue
-
-                audio_data = payload[rtp_payload_start:]
-
-                rtp_payloads.append(RTPPayload(
-                    timestamp_epoch=float(pkt.time),
-                    sequence=seq,
-                    rtp_timestamp=ts,
-                    payload_type=pt,
-                    codec=codec,
-                    payload=audio_data,
-                    source_ip=pkt[IP].src,
-                    source_port=pkt[UDP].sport,
-                    destination_ip=pkt[IP].dst,
-                    destination_port=pkt[UDP].dport,
-                ))
-
-            if rtp_payloads:
-                results[call_id] = rtp_payloads
-
-    except Exception as e:
-        logger.error(f"RTP payload extraction error: {e}")
-
-    return results
-
-
-def _group_packets_by_call_id(file_path: str, call_ids: Optional[set[str]] = None):
-    """Group PCAP packets by SIP Call-ID for later processing"""
-    from scapy.all import rdpcap, UDP, IP, Raw
-    from app.core.sip_parser import CALL_ID_RE
-
-    grouped = {}
+    payloads: list[RTPPayload] = []
 
     try:
         for pkt in rdpcap(file_path):
@@ -161,28 +99,51 @@ def _group_packets_by_call_id(file_path: str, call_ids: Optional[set[str]] = Non
                 continue
 
             payload = pkt[Raw].load
+            if len(payload) < 12:
+                continue
 
-            # Try to extract Call-ID if this is SIP
-            try:
-                payload_str = payload.decode("utf-8", errors="ignore")
-                call_id_match = CALL_ID_RE.search(payload_str)
-                if call_id_match:
-                    call_id = call_id_match.group(1).strip()
+            # Parse RTP header
+            rtp_hdr = _parse_rtp_header(payload)
+            if rtp_hdr is None:
+                continue
 
-                    # Filter by call_ids if provided
-                    if call_ids and call_id not in call_ids:
-                        continue
+            version, pt, seq, ts, ssrc = rtp_hdr
 
-                    if call_id not in grouped:
-                        grouped[call_id] = []
-                    grouped[call_id].append(pkt)
-            except Exception:
-                pass
+            # Only extract known audio codecs
+            if pt not in CODEC_PT_MAP:
+                continue
+
+            codec = CODEC_PT_MAP[pt]
+
+            # RTP payload is everything after the 12-byte header (+ CSRC list if present)
+            cc = (payload[0] & 0x0F)  # CSRC count
+            csrc_bytes = cc * 4
+            rtp_payload_start = 12 + csrc_bytes
+
+            if len(payload) <= rtp_payload_start:
+                continue
+
+            audio_data = payload[rtp_payload_start:]
+
+            payloads.append(RTPPayload(
+                timestamp_epoch=float(pkt.time),
+                sequence=seq,
+                rtp_timestamp=ts,
+                payload_type=pt,
+                codec=codec,
+                payload=audio_data,
+                source_ip=pkt[IP].src,
+                source_port=pkt[UDP].sport,
+                destination_ip=pkt[IP].dst,
+                destination_port=pkt[UDP].dport,
+            ))
 
     except Exception as e:
-        logger.error(f"Error grouping packets by Call-ID: {e}")
+        logger.error(f"RTP payload extraction error: {e}")
 
-    return grouped
+    # Return all RTP packets under a single key (Call-ID is known from SIP session)
+    return {"ALL": payloads} if payloads else {}
+
 
 
 def _parse_rtp_header(payload: bytes) -> Optional[tuple]:
@@ -324,20 +285,22 @@ def reconstruct_call_audio(
 
     Args:
         file_path: Path to PCAP file
-        call_id: SIP Call-ID
+        call_id: SIP Call-ID (used for naming, not for filtering RTP)
         output_dir: Directory to write WAV files
 
     Returns:
         List of reconstruction result dicts (one per direction)
     """
-    # Extract RTP payloads for this call
+    # Extract RTP payloads from PCAP
+    # Note: We extract ALL RTP from the file (can't filter by Call-ID since RTP is binary)
     payloads_by_call = extract_rtp_payloads_from_pcap(file_path, {call_id})
 
-    if call_id not in payloads_by_call or not payloads_by_call[call_id]:
+    # Get the payloads (should be under "ALL" key since RTP doesn't have Call-ID)
+    payloads = payloads_by_call.get("ALL", [])
+
+    if not payloads:
         logger.info(f"No RTP packets found for call {call_id}")
         return []
-
-    payloads = payloads_by_call[call_id]
 
     # Group by direction (source + destination endpoint pair)
     directions: dict[tuple, RTPDirection] = {}
