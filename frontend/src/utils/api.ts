@@ -1,4 +1,4 @@
-import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile } from "../types";
+import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile, Recording } from "../types";
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -78,4 +78,6 @@ export const api = {
   getTestHistory: () => apiFetch<any[]>("/replay-test/history"),
 
   health: () => apiFetch<{ status: string; version: string; database: string }>("/health"),
+
+  getRecordings: (callId: number) => apiFetch<{ call_id: number; recordings: Recording[] }>(`/recordings/${callId}`),
 };

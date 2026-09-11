@@ -21,6 +21,9 @@ from app.models.sip_event import SIPEvent
 from app.models.test_run import TestRun
 from app.models.capture_file import CaptureFile
 from app.models.rtp_stream import RTPStream
+from app.models.recording import Recording, RecordingStatus
+from app.services.audio_service import reconstruct_call_audio
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +117,33 @@ async def process_pcap(
                 await _save_rtp_streams(metrics_list, db_call, db)
     except Exception as e:
         logger.warning(f"RTP analysis failed (non-fatal): {e}")
+
+    # ── Audio reconstruction from RTP (v2.2.0 feature) ─────────────────────
+    try:
+        recordings_dir = Path("data") / "recordings"
+        for session in sessions:
+            db_call = call_db_map.get(session.call_id)
+            if not db_call:
+                continue
+
+            # Only attempt audio reconstruction for answered calls with RTP
+            if session.status != "ANSWERED":
+                continue
+
+            try:
+                audio_results = reconstruct_call_audio(
+                    file_path=file_path,
+                    call_id=session.call_id,
+                    output_dir=recordings_dir,
+                )
+
+                # Save recording metadata to database
+                await _save_recordings(db_call, audio_results, db)
+
+            except Exception as e:
+                logger.warning(f"Audio reconstruction failed for {session.call_id}: {e}")
+    except Exception as e:
+        logger.warning(f"Audio reconstruction pipeline failed (non-fatal): {e}")
 
     elapsed = round(time.monotonic() - start, 3)
     summary = _build_summary(sessions)
@@ -355,3 +385,32 @@ def _build_summary(sessions: list[CallSession]) -> dict:
         "total": total,
         "success_rate": round((answered / total * 100), 1) if total else 0,
     }
+
+
+async def _save_recordings(
+    call: Call,
+    audio_results: list[dict],
+    db: AsyncSession,
+) -> None:
+    """Save audio recording metadata for one call."""
+    for result in audio_results:
+        # Only save successful or partial recordings
+        if result.get("status") not in ["SUCCESS", "PARTIAL"]:
+            continue
+
+        recording = Recording(
+            call_id=call.id,
+            direction=result.get("direction", "unknown"),
+            codec=result.get("codec"),
+            sample_rate=8000,  # Standard VoIP
+            channels=1,  # Mono
+            file_path=result.get("file_path"),
+            file_size_bytes=result.get("file_size_bytes"),
+            duration_seconds=result.get("duration_seconds"),
+            status=RecordingStatus(result.get("status", "FAILED")),
+            packets_used=result.get("packets_used", 0),
+            packets_missing=result.get("packets_missing", 0),
+            notes=result.get("notes"),
+        )
+        db.add(recording)
+    await db.flush()

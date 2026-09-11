@@ -57,3 +57,4 @@ class Call(Base):
     events = relationship("SIPEvent", back_populates="call", cascade="all, delete-orphan")
     test_runs = relationship("TestRun", back_populates="call", cascade="all, delete-orphan")
     rtp_streams = relationship("RTPStream", back_populates="call", cascade="all, delete-orphan")
+    recordings = relationship("Recording", back_populates="call", cascade="all, delete-orphan")

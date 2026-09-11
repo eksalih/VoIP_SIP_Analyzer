@@ -5,6 +5,7 @@ import StatusBadge from "../components/shared/StatusBadge";
 import VendorBadge from "../components/shared/VendorBadge";
 import SIPLadder from "../components/calls/SIPLadder";
 import MediaQuality from "../components/calls/MediaQuality";
+import AudioRecordings from "../components/calls/AudioRecordings";
 import type { Call, SIPEvent, RTPStream } from "../types";
 
 interface Props {
@@ -12,7 +13,7 @@ interface Props {
   onBack: () => void;
 }
 
-type Tab = "ladder" | "media" | "packets" | "raw";
+type Tab = "ladder" | "media" | "recordings" | "packets" | "raw";
 
 export default function CallDetail({ callId, onBack }: Props) {
   const [call, setCall]               = useState<Call | null>(null);
@@ -40,10 +41,11 @@ export default function CallDetail({ callId, onBack }: Props) {
   const hasOneWay  = mediaStreams.some(s => s.is_one_way);
 
   const TAB_LABELS: Record<Tab, string> = {
-    ladder:  "SIP Ladder",
-    media:   "Media Quality",
-    packets: "Packet Viewer",
-    raw:     "Raw Messages",
+    ladder:      "SIP Ladder",
+    media:       "Media Quality",
+    recordings:  "Audio Recordings",
+    packets:     "Packet Viewer",
+    raw:         "Raw Messages",
   };
 
   return (
@@ -111,7 +113,7 @@ export default function CallDetail({ callId, onBack }: Props) {
 
       {/* Tabs */}
       <div className="detail-tabs">
-        {(["ladder", "media", "packets", "raw"] as Tab[]).map((t) => (
+        {(["ladder", "media", "recordings", "packets", "raw"] as Tab[]).map((t) => (
           <button
             key={t}
             className={`tab-btn ${tab === t ? "active" : ""}`}
@@ -142,6 +144,12 @@ export default function CallDetail({ callId, onBack }: Props) {
       {tab === "media" && (
         <div className="tab-panel">
           <MediaQuality streams={mediaStreams} />
+        </div>
+      )}
+
+      {tab === "recordings" && (
+        <div className="tab-panel">
+          <AudioRecordings callId={callId} />
         </div>
       )}
 

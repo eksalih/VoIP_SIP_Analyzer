@@ -1,0 +1,163 @@
+.recordings-container {
+  padding: 1rem 0;
+}
+
+.recordings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.recording-item {
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 6px;
+  padding: 1rem;
+  background: var(--bg-card, #ffffff);
+  transition: all 0.2s ease;
+}
+
+.recording-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.recording-item.recording-success {
+  border-left: 4px solid #3fb950;
+}
+
+.recording-item.recording-partial {
+  border-left: 4px solid #d29922;
+}
+
+.recording-item.recording-failed {
+  border-left: 4px solid #f85149;
+  opacity: 0.7;
+}
+
+.recording-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.recording-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.recording-direction {
+  font-family: monospace;
+  font-size: 0.9em;
+  color: var(--text-secondary, #666);
+  background: var(--bg-secondary, #f5f5f5);
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+}
+
+.recording-status {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.recording-status.status-success {
+  background: #dafbe1;
+  color: #238636;
+}
+
+.recording-status.status-partial {
+  background: #fff8c5;
+  color: #9e6a03;
+}
+
+.recording-status.status-failed {
+  background: #ffebe6;
+  color: #da3633;
+}
+
+.recording-codec {
+  font-size: 0.85em;
+  color: var(--text-secondary, #666);
+  background: var(--bg-secondary, #f5f5f5);
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+}
+
+.download-btn {
+  padding: 0.5rem 1rem;
+  background: #0969da;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  text-decoration: none;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.download-btn:hover {
+  background: #0860ca;
+}
+
+.download-btn.disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  color: #666;
+}
+
+.recording-meta {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.9em;
+}
+
+.meta-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.meta-label {
+  color: var(--text-secondary, #666);
+  font-weight: 500;
+}
+
+.meta-value {
+  font-family: monospace;
+  color: var(--text-primary, #333);
+}
+
+.recording-player {
+  width: 100%;
+  margin-top: 0.75rem;
+  outline: none;
+}
+
+.recording-player::-webkit-media-controls-panel {
+  background: var(--bg-secondary, #f5f5f5);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .recording-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .download-btn {
+    align-self: flex-start;
+  }
+
+  .recording-meta {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}

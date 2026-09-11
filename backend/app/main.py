@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.db.database import init_db
-from app.api import calls, analytics, upload, health, replay, capture_files, export
+from app.api import calls, analytics, upload, health, replay, capture_files, export, recordings
 
 
 @asynccontextmanager
@@ -34,3 +34,4 @@ app.include_router(capture_files.router, prefix="/capture-files", tags=["Capture
 app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 app.include_router(replay.router, prefix="/replay-test", tags=["Replay"])
 app.include_router(export.router, prefix="/export", tags=["Export"])
+app.include_router(recordings.router, prefix="/recordings", tags=["Recordings"])

@@ -116,3 +116,16 @@ export interface BatchUploadResult {
   combined_summary: Record<string, number>;
   files: UploadResult[];
 }
+
+export interface Recording {
+  id: number;
+  direction: string;
+  codec: string;
+  duration_seconds: number | null;
+  file_size_bytes: number | null;
+  status: "SUCCESS" | "PARTIAL" | "FAILED" | "NO_RTP";
+  packets_used: number;
+  packets_missing: number;
+  download_url: string;
+  created_at: string | null;
+}
