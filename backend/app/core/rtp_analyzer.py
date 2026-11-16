@@ -115,9 +115,11 @@ class RTPPacket:
     source_port: int
     destination_ip: str
     destination_port: int
+    payload: bytes = b""  # codec payload; only populated when keep_payload=True
 
 
 def _parse_rtp_header(payload: bytes) -> Optional[tuple]:
+    """Return (version, pt, seq, ts, ssrc, payload_offset) or None."""
     if len(payload) < 12:
         return None
     version = (payload[0] >> 6) & 0x03
@@ -127,11 +129,20 @@ def _parse_rtp_header(payload: bytes) -> Optional[tuple]:
     seq  = struct.unpack(">H", payload[2:4])[0]
     ts   = struct.unpack(">I", payload[4:8])[0]
     ssrc = struct.unpack(">I", payload[8:12])[0]
-    return (version, pt, seq, ts, ssrc)
+    # Header = 12 bytes + 4 per CSRC (+ extension header if X bit set)
+    offset = 12 + 4 * (payload[0] & 0x0F)
+    if payload[0] & 0x10 and len(payload) >= offset + 4:
+        ext_words = struct.unpack(">H", payload[offset + 2:offset + 4])[0]
+        offset += 4 + 4 * ext_words
+    return (version, pt, seq, ts, ssrc, offset)
 
 
-def extract_rtp_packets(file_path: str) -> list[RTPPacket]:
-    """Read all RTP v2 packets from the PCAP."""
+def extract_rtp_packets(file_path: str, keep_payload: bool = False) -> list[RTPPacket]:
+    """Read all RTP v2 packets from the PCAP.
+
+    keep_payload=True also stores each packet's codec payload (needed for audio
+    reconstruction; off by default to keep memory low for quality analysis).
+    """
     try:
         from scapy.all import rdpcap, UDP, IP, Raw
     except ImportError:
@@ -147,10 +158,11 @@ def extract_rtp_packets(file_path: str) -> list[RTPPacket]:
             parsed = _parse_rtp_header(payload)
             if parsed is None:
                 continue
-            _, pt, seq, ts, ssrc = parsed
+            _, pt, seq, ts, ssrc, offset = parsed
             if pt == 101:
                 continue  # skip DTMF
             packets.append(RTPPacket(
+                payload=payload[offset:] if keep_payload else b"",
                 timestamp_epoch=float(pkt.time),
                 sequence=seq,
                 ssrc=ssrc,

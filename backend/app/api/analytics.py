@@ -38,23 +38,24 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
     success_rate = round((answered / total * 100), 1) if total else 0.0
 
     # ── RTP aggregate metrics ─────────────────────────────────────────────
-    avg_jitter_q = await db.execute(
-        select(func.avg(RTPStream.jitter_ms)).where(RTPStream.jitter_ms.isnot(None))
-    )
-    avg_jitter = avg_jitter_q.scalar()
+    # Join to Call so streams whose call no longer exists (orphans) are never
+    # counted, keeping RTP tiles consistent with the call totals.
+    def _rtp(expr):
+        return select(expr).select_from(RTPStream).join(Call, RTPStream.call_id == Call.id)
 
-    avg_loss_q = await db.execute(
-        select(func.avg(RTPStream.packet_loss_pct)).where(RTPStream.packet_loss_pct.isnot(None))
-    )
-    avg_loss = avg_loss_q.scalar()
+    avg_jitter = (await db.execute(
+        _rtp(func.avg(RTPStream.jitter_ms)).where(RTPStream.jitter_ms.isnot(None))
+    )).scalar()
 
-    one_way_q = await db.execute(
-        select(func.count(RTPStream.id)).where(RTPStream.is_one_way.is_(True))
-    )
-    one_way_count = one_way_q.scalar() or 0
+    avg_loss = (await db.execute(
+        _rtp(func.avg(RTPStream.packet_loss_pct)).where(RTPStream.packet_loss_pct.isnot(None))
+    )).scalar()
 
-    total_streams_q = await db.execute(select(func.count(RTPStream.id)))
-    total_streams = total_streams_q.scalar() or 0
+    one_way_count = (await db.execute(
+        _rtp(func.count(RTPStream.id)).where(RTPStream.is_one_way.is_(True))
+    )).scalar() or 0
+
+    total_streams = (await db.execute(_rtp(func.count(RTPStream.id)))).scalar() or 0
 
     # Calls per day (last 30 days)
     days_q = await db.execute(
