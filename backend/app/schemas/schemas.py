@@ -44,6 +44,11 @@ class CallSchema(BaseModel):
     status: CallStatus
     sip_result_code: Optional[int] = None
     rejection_reason: Optional[str] = None
+    # Reconstructed audio (v2.2.0). The file path stays server-side; clients only
+    # see whether audio exists and fetch it via GET /calls/{id}/audio.
+    has_audio: bool = False
+    audio_codec: Optional[str] = None
+    audio_duration: Optional[float] = None
     created_at: Optional[datetime] = None
 
 

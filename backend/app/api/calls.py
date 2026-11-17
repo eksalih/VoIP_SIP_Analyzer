@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from typing import Optional
@@ -10,6 +10,9 @@ from app.models.test_run import TestRun
 from app.models.capture_file import CaptureFile
 from app.models.rtp_stream import RTPStream
 from app.schemas.schemas import CallSchema, CallDetailSchema, SIPEventSchema, RTPStreamSchema
+from app.services.audio_storage import (
+    resolve_audio_path, remove_audio_files, remove_all_audio, build_audio_response,
+)
 
 router = APIRouter()
 
@@ -78,10 +81,14 @@ async def clear_all_data(
     await db.execute(delete(CaptureFile))
     await db.commit()
 
+    # Remove reconstructed recordings too (only after the DB commit succeeded).
+    audio_removed = remove_all_audio()
+
     return {
         "status": "ok",
         "message": "All call data cleared.",
         "deleted": {
+            "audio_files": audio_removed,
             "calls": calls_count,
             "events": events_count,
             "rtp_streams": rtp_count,
@@ -145,12 +152,39 @@ async def get_call_media(call_id: int, db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
-@router.delete("/{call_id}")
-async def delete_call(call_id: int, db: AsyncSession = Depends(get_db)):
-    """Delete a call and its events."""
+@router.get("/{call_id}/audio")
+async def get_call_audio(
+    call_id: int,
+    download: bool = Query(False, description="Send as an attachment instead of inline"),
+    range: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Stream the reconstructed call audio (stereo WAV: caller left, callee right),
+    with Range support so browser players can seek.
+    404 when audio was not saved (SAVE_CALL_AUDIO off, non-G.711 codec, no RTP).
+    """
     result = await db.execute(select(Call).where(Call.id == call_id))
     call = result.scalar_one_or_none()
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
+
+    path = resolve_audio_path(call.audio_path)
+    if not path:
+        raise HTTPException(status_code=404, detail="No audio available for this call")
+
+    return build_audio_response(path, f"call_{call.id}.wav", range, download)
+
+
+@router.delete("/{call_id}")
+async def delete_call(call_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete a call, its events and its saved audio."""
+    result = await db.execute(select(Call).where(Call.id == call_id))
+    call = result.scalar_one_or_none()
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    audio_path = call.audio_path
     await db.delete(call)
+    await db.flush()
+    remove_audio_files([audio_path])
     return {"deleted": call_id}

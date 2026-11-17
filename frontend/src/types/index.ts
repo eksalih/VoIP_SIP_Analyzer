@@ -43,6 +43,9 @@ export interface Call {
   user_agent: string | null;
   vendor: string | null;
   vendor_category: string | null;
+  has_audio: boolean;
+  audio_codec: string | null;
+  audio_duration: number | null;
   sip_domain: string | null;
   branch_id: string | null;
   start_time: string | null;

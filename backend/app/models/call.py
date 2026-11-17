@@ -51,7 +51,17 @@ class Call(Base):
     sip_result_code = Column(Integer, nullable=True)
     rejection_reason = Column(String, nullable=True)
 
+    # Reconstructed call audio (v2.2.0, opt-in via SAVE_CALL_AUDIO). Path is relative
+    # to the recordings directory so the data folder stays relocatable.
+    audio_path = Column(String, nullable=True)
+    audio_codec = Column(String, nullable=True)
+    audio_duration = Column(Float, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    @property
+    def has_audio(self) -> bool:
+        return bool(self.audio_path)
 
     capture_file = relationship("CaptureFile", back_populates="calls")
     events = relationship("SIPEvent", back_populates="call", cascade="all, delete-orphan")

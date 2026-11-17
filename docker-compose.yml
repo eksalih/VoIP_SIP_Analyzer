@@ -23,6 +23,9 @@ services:
       # this line (compose `environment:` takes precedence over `env_file:`,
       # so setting DATABASE_URL in backend/.env alone will NOT override it).
       - DATABASE_URL=sqlite+aiosqlite:///./data/voip_analyzer.db
+      # v2.2.0: save reconstructed call audio (WAV, G.711 only) under ./data/recordings.
+      # Off by default; recording calls may carry legal obligations in your jurisdiction.
+      - SAVE_CALL_AUDIO=${SAVE_CALL_AUDIO:-false}
     volumes:
       - ./data:/app/data
     restart: unless-stopped

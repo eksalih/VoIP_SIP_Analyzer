@@ -7,6 +7,7 @@ upload are scoped to it, so multiple files (or repeated test sessions)
 never blur their calls together in the call list.
 """
 import logging
+import os
 import time
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,10 @@ from sqlalchemy import select
 
 from app.core.sip_parser import parse_pcap_file
 from app.core.call_state_machine import process_pcap_sessions, CallSession
-from app.core.rtp_analyzer import analyze_rtp, RTPStreamMetrics
+from app.core.rtp_analyzer import (
+    analyze_rtp, RTPStreamMetrics, extract_rtp_packets, extract_sdp, correlate,
+)
+from app.core.audio_reconstructor import reconstruct_audio, UnsupportedCodecError
 from app.core.vendor_detector import detect_vendor, detect_vendor_category
 from app.models.call import Call, CallStatus
 from app.models.sip_event import SIPEvent
@@ -114,6 +118,13 @@ async def process_pcap(
                 await _save_rtp_streams(metrics_list, db_call, db)
     except Exception as e:
         logger.warning(f"RTP analysis failed (non-fatal): {e}")
+
+    # ── Audio reconstruction (opt-in, best-effort) ────────────────────────
+    if audio_saving_enabled():
+        try:
+            await _save_call_audio(file_path, sessions, sip_packet_map, call_db_map, db)
+        except Exception as e:
+            logger.warning(f"Audio reconstruction failed (non-fatal): {e}")
 
     elapsed = round(time.monotonic() - start, 3)
     summary = _build_summary(sessions)
@@ -286,6 +297,60 @@ async def _save_rtp_streams(
             is_one_way=m.is_one_way,
         )
         db.add(stream)
+    await db.flush()
+
+
+def audio_saving_enabled() -> bool:
+    """Call-audio storage is opt-in (recording calls may carry legal obligations)."""
+    return os.getenv("SAVE_CALL_AUDIO", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
+def recordings_dir() -> str:
+    return os.getenv("RECORDINGS_DIR", "./data/recordings")
+
+
+async def _save_call_audio(
+    file_path: str,
+    sessions: list[CallSession],
+    sip_packet_map: dict,
+    call_db_map: dict[str, Call],
+    db: AsyncSession,
+) -> None:
+    """Rebuild a stereo WAV per answered call and record its path on the Call row."""
+    answered = [s for s in sessions if s.status == "ANSWERED"]
+    if not answered:
+        return
+
+    rtp_packets = extract_rtp_packets(file_path, keep_payload=True)
+    if not rtp_packets:
+        return
+
+    os.makedirs(recordings_dir(), exist_ok=True)
+
+    for session in answered:
+        call = call_db_map.get(session.call_id)
+        if not call:
+            continue
+        sdp = extract_sdp(sip_packet_map.get(session.call_id, []))
+        if not sdp.caller_sdp and not sdp.callee_sdp:
+            continue
+        a2b, b2a = correlate(rtp_packets, sdp)
+
+        rel_name = f"call_{call.id}.wav"
+        try:
+            result = reconstruct_audio(a2b, b2a, os.path.join(recordings_dir(), rel_name))
+        except UnsupportedCodecError as e:
+            logger.info(f"Call {session.call_id}: no audio saved ({e})")
+            continue
+        except Exception as e:
+            logger.warning(f"Call {session.call_id}: audio reconstruction error: {e}")
+            continue
+
+        if result:
+            call.audio_path = rel_name
+            call.audio_codec = result.codec
+            call.audio_duration = result.duration_seconds
+
     await db.flush()
 
 

@@ -208,6 +208,15 @@ make test
 
 The application works out of the box with default settings.
 
+### Call Audio (v2.2.0)
+
+The app can rebuild call audio from the RTP in uploaded captures and let you play it back from a call's **Media** tab (caller on the left channel, callee on the right).
+
+* Off by default. Enable with `SAVE_CALL_AUDIO=true` (Docker: set it in the **root** `.env`).
+* Supports G.711 (PCMU/PCMA) only; other codecs are skipped without affecting call analysis.
+* WAV files are stored in `data/recordings` and are deleted when you delete a call, a capture file, or use **Clear All Data**.
+* Recording calls may carry legal obligations in your jurisdiction; only enable it for traffic you are permitted to record.
+
 ### Database
 
 Default:
@@ -267,6 +276,7 @@ or
 * SIP traffic must be unencrypted
 * TLS-encrypted SIP is not supported
 * SRTP media streams are not analyzed
+* Call audio reconstruction supports G.711 only
 * Upload limits can be configured through environment variables
 
 ---
@@ -282,6 +292,7 @@ Main API routes:
 | POST   | /upload-pcap/batch | Upload multiple captures |
 | GET    | /calls             | List detected calls      |
 | GET    | /calls/{id}        | View call details        |
+| GET    | /calls/{id}/audio  | Reconstructed call audio (WAV) |
 | GET    | /analytics         | Call statistics          |
 | POST   | /replay-test       | Validation testing       |
 

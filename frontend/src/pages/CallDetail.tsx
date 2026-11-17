@@ -5,6 +5,7 @@ import StatusBadge from "../components/shared/StatusBadge";
 import VendorBadge from "../components/shared/VendorBadge";
 import SIPLadder from "../components/calls/SIPLadder";
 import MediaQuality from "../components/calls/MediaQuality";
+import AudioPlayer from "../components/calls/AudioPlayer";
 import type { Call, SIPEvent, RTPStream } from "../types";
 
 interface Props {
@@ -141,6 +142,13 @@ export default function CallDetail({ callId, onBack }: Props) {
 
       {tab === "media" && (
         <div className="tab-panel">
+          <AudioPlayer
+            callId={call.id}
+            status={call.status}
+            hasAudio={call.has_audio}
+            codec={call.audio_codec}
+            duration={call.audio_duration}
+          />
           <MediaQuality streams={mediaStreams} />
         </div>
       )}
