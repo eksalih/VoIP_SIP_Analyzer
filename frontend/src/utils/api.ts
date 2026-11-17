@@ -28,6 +28,9 @@ export const api = {
 
   getCallMedia: (id: number) => apiFetch<import("../types").RTPStream[]>(`/calls/${id}/media`),
 
+  // Direct URL for <audio src> / download links (reconstructed WAV, v2.2.0)
+  callAudioUrl: (id: number) => `${BASE}/calls/${id}/audio`,
+
   deleteCall: (id: number) => apiFetch<void>(`/calls/${id}`, { method: "DELETE" }),
 
   clearAllData: () => apiFetch<{ status: string; message: string; deleted: Record<string, number> }>(
