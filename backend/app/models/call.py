@@ -59,6 +59,10 @@ class Call(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    @property
+    def has_audio(self) -> bool:
+        return bool(self.audio_path)
+
     capture_file = relationship("CaptureFile", back_populates="calls")
     events = relationship("SIPEvent", back_populates="call", cascade="all, delete-orphan")
     test_runs = relationship("TestRun", back_populates="call", cascade="all, delete-orphan")
