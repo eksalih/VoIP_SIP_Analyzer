@@ -81,7 +81,7 @@ export default function AudioPlayer({ callId, status, hasAudio, codec, duration 
             {s}x
           </button>
         ))}
-        <a href={url} download={`call_${callId}.wav`} style={{ marginLeft: "auto" }}>
+        <a href={`${url}?download=1`} download={`call_${callId}.wav`} style={{ marginLeft: "auto" }}>
           Download WAV
         </a>
       </div>

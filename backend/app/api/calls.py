@@ -1,5 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from typing import Optional
@@ -11,7 +10,9 @@ from app.models.test_run import TestRun
 from app.models.capture_file import CaptureFile
 from app.models.rtp_stream import RTPStream
 from app.schemas.schemas import CallSchema, CallDetailSchema, SIPEventSchema, RTPStreamSchema
-from app.services.audio_storage import resolve_audio_path, remove_audio_files, remove_all_audio
+from app.services.audio_storage import (
+    resolve_audio_path, remove_audio_files, remove_all_audio, build_audio_response,
+)
 
 router = APIRouter()
 
@@ -152,9 +153,15 @@ async def get_call_media(call_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{call_id}/audio")
-async def get_call_audio(call_id: int, db: AsyncSession = Depends(get_db)):
+async def get_call_audio(
+    call_id: int,
+    download: bool = Query(False, description="Send as an attachment instead of inline"),
+    range: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Stream the reconstructed call audio (stereo WAV: caller left, callee right).
+    Stream the reconstructed call audio (stereo WAV: caller left, callee right),
+    with Range support so browser players can seek.
     404 when audio was not saved (SAVE_CALL_AUDIO off, non-G.711 codec, no RTP).
     """
     result = await db.execute(select(Call).where(Call.id == call_id))
@@ -166,7 +173,7 @@ async def get_call_audio(call_id: int, db: AsyncSession = Depends(get_db)):
     if not path:
         raise HTTPException(status_code=404, detail="No audio available for this call")
 
-    return FileResponse(path, media_type="audio/wav", filename=f"call_{call.id}.wav")
+    return build_audio_response(path, f"call_{call.id}.wav", range, download)
 
 
 @router.delete("/{call_id}")

@@ -199,3 +199,56 @@ class TestAnalyticsOrphanGuard:
         assert data["rtp_one_way_count"] == 0
         assert data["rtp_avg_jitter_ms"] is None
         assert data["rtp_avg_loss_pct"] is None
+
+
+class TestAudioHttpBehaviour:
+    """Browser players need inline disposition and Range support to play and seek."""
+
+    async def _call_with_audio(self, client, tmp_path):
+        await _upload(client, _build_call_with_rtp(tmp_path / "a.pcap"))
+        return (await _first_call(client))["id"]
+
+    @pytest.mark.asyncio
+    async def test_inline_by_default_attachment_on_download(self, client, tmp_path, recordings):
+        cid = await self._call_with_audio(client, tmp_path)
+        inline = await client.get(f"/calls/{cid}/audio")
+        assert inline.headers["content-disposition"].startswith("inline")
+        assert inline.headers["accept-ranges"] == "bytes"
+        dl = await client.get(f"/calls/{cid}/audio?download=1")
+        assert dl.headers["content-disposition"].startswith("attachment")
+
+    @pytest.mark.asyncio
+    async def test_range_request_returns_partial_content(self, client, tmp_path, recordings):
+        cid = await self._call_with_audio(client, tmp_path)
+        full = (await client.get(f"/calls/{cid}/audio")).content
+
+        part = await client.get(f"/calls/{cid}/audio", headers={"Range": "bytes=0-99"})
+        assert part.status_code == 206
+        assert part.content == full[:100]
+        assert part.headers["content-range"] == f"bytes 0-99/{len(full)}"
+
+        open_ended = await client.get(f"/calls/{cid}/audio", headers={"Range": "bytes=100-"})
+        assert open_ended.status_code == 206
+        assert open_ended.content == full[100:]
+
+    @pytest.mark.asyncio
+    async def test_suffix_range(self, client, tmp_path, recordings):
+        cid = await self._call_with_audio(client, tmp_path)
+        full = (await client.get(f"/calls/{cid}/audio")).content
+        tail = await client.get(f"/calls/{cid}/audio", headers={"Range": "bytes=-50"})
+        assert tail.status_code == 206
+        assert tail.content == full[-50:]
+
+    @pytest.mark.asyncio
+    async def test_unsatisfiable_range_is_416(self, client, tmp_path, recordings):
+        cid = await self._call_with_audio(client, tmp_path)
+        resp = await client.get(f"/calls/{cid}/audio", headers={"Range": "bytes=99999999-"})
+        assert resp.status_code == 416
+
+    @pytest.mark.asyncio
+    async def test_malformed_range_falls_back_to_full_file(self, client, tmp_path, recordings):
+        cid = await self._call_with_audio(client, tmp_path)
+        full = (await client.get(f"/calls/{cid}/audio")).content
+        resp = await client.get(f"/calls/{cid}/audio", headers={"Range": "bytes=abc-def"})
+        assert resp.status_code == 200
+        assert resp.content == full
