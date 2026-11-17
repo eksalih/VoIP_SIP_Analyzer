@@ -5,8 +5,10 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.db.database import get_db
+from app.models.call import Call
 from app.models.capture_file import CaptureFile
 from app.schemas.schemas import CaptureFileSchema
+from app.services.audio_storage import remove_audio_files
 
 router = APIRouter()
 
@@ -66,5 +68,13 @@ async def delete_capture_file(capture_file_id: int, db: AsyncSession = Depends(g
     cf = result.scalar_one_or_none()
     if not cf:
         raise HTTPException(status_code=404, detail="Capture file not found")
+    # Collect saved recordings before the calls are gone, then remove the files.
+    audio_paths = (await db.execute(
+        select(Call.audio_path).where(
+            Call.capture_file_id == capture_file_id, Call.audio_path.isnot(None)
+        )
+    )).scalars().all()
     await db.delete(cf)
+    await db.flush()
+    remove_audio_files(audio_paths)
     return {"deleted": capture_file_id}
