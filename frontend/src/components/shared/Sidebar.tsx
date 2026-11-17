@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import type { Page } from "../../App";
+import { api } from "../../utils/api";
 import "../../App.css";
 
 interface Props {
@@ -13,6 +15,13 @@ const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
 ];
 
 export default function Sidebar({ currentPage, onNavigate }: Props) {
+  // Show the version the backend actually reports, so the badge can never drift
+  // from the running build. Fallback is shown until /health answers (or if it fails).
+  const [version, setVersion] = useState("v2.2.0");
+  useEffect(() => {
+    api.health().then((h) => h.version && setVersion(`v${h.version}`)).catch(() => {});
+  }, []);
+
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -32,7 +41,7 @@ export default function Sidebar({ currentPage, onNavigate }: Props) {
         ))}
       </nav>
       <div className="sidebar-footer">
-        <span className="version-badge">v2.1.2</span>
+        <span className="version-badge">{version}</span>
       </div>
     </aside>
   );
