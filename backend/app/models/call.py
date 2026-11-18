@@ -13,6 +13,7 @@ class CallStatus(str, enum.Enum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
     UNKNOWN = "UNKNOWN"
+    IN_PROGRESS = "IN_PROGRESS"  # live call not yet finalised (v2.3.0)
 
 
 class Call(Base):

@@ -13,7 +13,11 @@ router = APIRouter()
 @router.get("", response_model=AnalyticsSchema)
 async def get_analytics(db: AsyncSession = Depends(get_db)):
     """Return aggregate analytics for all calls."""
-    total_q = await db.execute(select(func.count(Call.id)))
+    # Calls still in progress have no outcome yet, so they are left out of the
+    # totals and the success rate until they are finalised.
+    total_q = await db.execute(
+        select(func.count(Call.id)).where(Call.status != CallStatus.IN_PROGRESS)
+    )
     total = total_q.scalar() or 0
 
     def _count(status: CallStatus):

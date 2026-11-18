@@ -7,6 +7,7 @@ export const STATUS_COLORS: Record<CallStatus, string> = {
   FAILED:    "#9e9e9e",
   CANCELLED: "#2196f3",
   UNKNOWN:   "#607d8b",
+  IN_PROGRESS: "#00acc1",
 };
 
 export const STATUS_BG: Record<CallStatus, string> = {
@@ -16,6 +17,7 @@ export const STATUS_BG: Record<CallStatus, string> = {
   FAILED:    "#f5f5f5",
   CANCELLED: "#e3f2fd",
   UNKNOWN:   "#eceff1",
+  IN_PROGRESS: "#e0f7fa",
 };
 
 export function formatDuration(seconds: number | null): string {

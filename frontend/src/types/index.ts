@@ -1,4 +1,4 @@
-export type CallStatus = "ANSWERED" | "MISSED" | "REJECTED" | "FAILED" | "CANCELLED" | "UNKNOWN";
+export type CallStatus = "ANSWERED" | "MISSED" | "REJECTED" | "FAILED" | "CANCELLED" | "UNKNOWN" | "IN_PROGRESS";
 
 export interface SIPEvent {
   id: number;
@@ -43,6 +43,7 @@ export interface Call {
   user_agent: string | null;
   vendor: string | null;
   vendor_category: string | null;
+  source: "upload" | "live";
   has_audio: boolean;
   audio_codec: string | null;
   audio_duration: number | null;

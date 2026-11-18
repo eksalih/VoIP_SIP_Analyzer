@@ -32,6 +32,7 @@ class CallSchema(BaseModel):
     user_agent: Optional[str] = None
     vendor: Optional[str] = None
     vendor_category: Optional[str] = None
+    source: str = "upload"  # "upload" or "live"
     sip_domain: Optional[str] = None
     branch_id: Optional[str] = None
     start_time: Optional[datetime] = None
