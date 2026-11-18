@@ -145,6 +145,59 @@ def parse_sip_message(raw: str) -> dict:
     return result
 
 
+def build_sip_packet(
+    payload: str,
+    timestamp: Optional[float] = None,
+    source_ip: Optional[str] = None,
+    destination_ip: Optional[str] = None,
+    source_port: Optional[int] = None,
+    destination_port: Optional[int] = None,
+) -> Optional[SIPPacket]:
+    """
+    Turn a UDP/TCP payload into a SIPPacket, or None if it is not a SIP message
+    with a Call-ID. Shared by the file parser and the live capture tracker so both
+    apply exactly the same SIP detection rules.
+    """
+    # Quick SIP check on the first line only, to cheaply skip non-SIP
+    # traffic (RTP, HTTP, etc.) without running the full regex parser.
+    # This also explicitly excludes "NOTIFY * HTTP/1.1" style noise
+    # some PBXs emit, which is NOT a SIP NOTIFY despite the method name.
+    first_line = payload[:24]
+    if not any(first_line.startswith(hint) or hint in first_line for hint in SIP_FIRST_LINE_HINTS):
+        return None
+    if "HTTP/1.1" in payload[:32] or "HTTP/1.0" in payload[:32]:
+        return None
+
+    parsed = parse_sip_message(payload)
+    if not parsed.get("call_id"):
+        return None
+
+    p = SIPPacket()
+    p.raw_message = payload
+    if timestamp is not None:
+        p.timestamp = datetime.fromtimestamp(float(timestamp))
+    p.source_ip = source_ip
+    p.destination_ip = destination_ip
+    p.source_port = source_port
+    p.destination_port = destination_port
+
+    p.call_id = parsed.get("call_id")
+    p.method = parsed.get("method")
+    p.response_code = parsed.get("response_code")
+    p.response_text = parsed.get("response_text")
+    p.caller = parsed.get("caller")
+    p.called = parsed.get("called")
+    p.display_name = parsed.get("display_name")
+    p.user_agent = parsed.get("user_agent")
+    p.sip_domain = parsed.get("sip_domain")
+    p.branch_id = parsed.get("branch_id")
+    p.cseq_number = parsed.get("cseq_number")
+    p.cseq_method = parsed.get("cseq_method")
+    p.is_request = parsed.get("is_request", False)
+    p.is_response = parsed.get("is_response", False)
+    return p
+
+
 def parse_pcap_scapy(file_path: str) -> list[SIPPacket]:
     """
     Parse PCAP using Scapy. This is the primary, always-available parser --
@@ -165,54 +218,18 @@ def parse_pcap_scapy(file_path: str) -> list[SIPPacket]:
                     continue
                 payload = raw_pkt[Raw].load.decode("utf-8", errors="replace")
 
-                # Quick SIP check on the first line only, to cheaply skip non-SIP
-                # traffic (RTP, HTTP, etc.) without running the full regex parser.
-                # This also explicitly excludes "NOTIFY * HTTP/1.1" style noise
-                # some PBXs emit, which is NOT a SIP NOTIFY despite the method name.
-                first_line = payload[:24]
-                if not any(first_line.startswith(hint) or hint in first_line for hint in SIP_FIRST_LINE_HINTS):
-                    continue
-                if "HTTP/1.1" in payload[:32] or "HTTP/1.0" in payload[:32]:
-                    continue
-
-                parsed = parse_sip_message(payload)
-                if not parsed.get("call_id"):
-                    continue
-
-                p = SIPPacket()
-                p.raw_message = payload
-
-                # Timestamp from Scapy
-                if hasattr(raw_pkt, "time"):
-                    p.timestamp = datetime.fromtimestamp(float(raw_pkt.time))
-
+                ts = float(raw_pkt.time) if hasattr(raw_pkt, "time") else None
+                src_ip = dst_ip = sport = dport = None
                 if raw_pkt.haslayer(IP):
-                    p.source_ip = raw_pkt[IP].src
-                    p.destination_ip = raw_pkt[IP].dst
-
+                    src_ip, dst_ip = raw_pkt[IP].src, raw_pkt[IP].dst
                 if raw_pkt.haslayer(UDP):
-                    p.source_port = raw_pkt[UDP].sport
-                    p.destination_port = raw_pkt[UDP].dport
+                    sport, dport = raw_pkt[UDP].sport, raw_pkt[UDP].dport
                 elif raw_pkt.haslayer(TCP):
-                    p.source_port = raw_pkt[TCP].sport
-                    p.destination_port = raw_pkt[TCP].dport
+                    sport, dport = raw_pkt[TCP].sport, raw_pkt[TCP].dport
 
-                p.call_id = parsed.get("call_id")
-                p.method = parsed.get("method")
-                p.response_code = parsed.get("response_code")
-                p.response_text = parsed.get("response_text")
-                p.caller = parsed.get("caller")
-                p.called = parsed.get("called")
-                p.display_name = parsed.get("display_name")
-                p.user_agent = parsed.get("user_agent")
-                p.sip_domain = parsed.get("sip_domain")
-                p.branch_id = parsed.get("branch_id")
-                p.cseq_number = parsed.get("cseq_number")
-                p.cseq_method = parsed.get("cseq_method")
-                p.is_request = parsed.get("is_request", False)
-                p.is_response = parsed.get("is_response", False)
-
-                packets.append(p)
+                p = build_sip_packet(payload, ts, src_ip, dst_ip, sport, dport)
+                if p is not None:
+                    packets.append(p)
 
             except Exception as e:
                 logger.debug(f"Scapy packet skip: {e}")
