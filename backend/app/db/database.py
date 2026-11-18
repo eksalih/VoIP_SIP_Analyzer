@@ -74,6 +74,17 @@ async def _auto_migrate_missing_columns_for_engine(target_engine, declarative_ba
 
                 col_type = column.type.compile(dialect=target_engine.dialect)
                 ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'
+                if column.server_default is not None:
+                    # Backfill existing rows with the declared default; NOT NULL is only
+                    # safe to add when a default exists (SQLite rejects it otherwise).
+                    arg = column.server_default.arg
+                    if isinstance(arg, str):
+                        default_sql = "'" + arg.replace("'", "''") + "'"
+                    else:
+                        default_sql = str(getattr(arg, "text", arg))
+                    ddl += f" DEFAULT {default_sql}"
+                    if not column.nullable:
+                        ddl += " NOT NULL"
                 logger.warning(
                     f"Auto-migration: adding missing column {table.name}.{column.name} "
                     f"(detected an older database schema from a previous version)"

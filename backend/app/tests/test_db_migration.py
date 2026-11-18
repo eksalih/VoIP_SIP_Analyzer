@@ -199,3 +199,38 @@ class TestAutoMigration:
         await _auto_migrate_missing_columns_for_engine(engine, Base)  # must not raise
 
         await engine.dispose()
+
+
+class TestMigrationBackfillsDefaults:
+    """v2.3.0 added NOT NULL columns with server defaults (Call.source,
+    CaptureFile.kind). Rows that existed before the upgrade must be backfilled,
+    not left NULL, or response validation would fail on old data."""
+
+    @pytest.mark.asyncio
+    async def test_existing_rows_get_default_source_and_kind(self, tmp_path):
+        engine = await _make_old_schema_engine(tmp_path, "backfill.db")
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO capture_files (id, filename) VALUES (1, 'old.pcap')"))
+            await conn.execute(text(
+                "INSERT INTO calls (id, capture_file_id, call_id, status) "
+                "VALUES (1, 1, 'old-call', 'ANSWERED')"))
+
+        await _auto_migrate_missing_columns_for_engine(engine, Base)
+
+        async with engine.begin() as conn:
+            call_source = (await conn.execute(text("SELECT source FROM calls WHERE id=1"))).scalar()
+            cf_kind = (await conn.execute(text("SELECT kind FROM capture_files WHERE id=1"))).scalar()
+        assert call_source == "upload"
+        assert cf_kind == "upload"
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_migration_is_idempotent(self, tmp_path):
+        engine = await _make_old_schema_engine(tmp_path, "idem.db")
+        await _auto_migrate_missing_columns_for_engine(engine, Base)
+        await _auto_migrate_missing_columns_for_engine(engine, Base)  # must not raise
+        async with engine.begin() as conn:
+            cols = await conn.run_sync(_get_columns, "calls")
+        assert "source" in cols
+        await engine.dispose()

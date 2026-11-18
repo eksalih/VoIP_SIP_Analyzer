@@ -51,6 +51,10 @@ class Call(Base):
     sip_result_code = Column(Integer, nullable=True)
     rejection_reason = Column(String, nullable=True)
 
+    # Where the call came from: "upload" (PCAP file) or "live" (capture service).
+    # Live calls have status IN_PROGRESS until they are finalised.
+    source = Column(String, nullable=False, default="upload", server_default="upload", index=True)
+
     # Reconstructed call audio (v2.2.0, opt-in via SAVE_CALL_AUDIO). Path is relative
     # to the recordings directory so the data folder stays relocatable.
     audio_path = Column(String, nullable=True)

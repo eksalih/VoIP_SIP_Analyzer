@@ -33,4 +33,7 @@ class CaptureFile(Base):
     # Optional free-text label so a tester can tag a file ("3CX firmware 18.2 retest")
     label = Column(String, nullable=True)
 
+    # "upload" for PCAP files, "live" for one capture-service run (v2.3.0)
+    kind = Column(String, nullable=False, default="upload", server_default="upload")
+
     calls = relationship("Call", back_populates="capture_file", cascade="all, delete-orphan")
