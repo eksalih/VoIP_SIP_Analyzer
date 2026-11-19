@@ -290,6 +290,30 @@ def correlate(rtp_packets: list[RTPPacket], sdp: CallSDP) -> tuple[list, list]:
     return a2b, b2a
 
 
+def compute_call_metrics(
+    a2b: list[RTPPacket],
+    b2a: list[RTPPacket],
+    ptime_ms: int = 20,
+    label: str = "",
+) -> list[RTPStreamMetrics]:
+    """
+    Per-direction quality metrics for one call. A direction that has packets
+    while the other has none is flagged one-way. Shared by the offline (PCAP
+    upload) and live capture paths so both report identical numbers.
+    """
+    metrics: list[RTPStreamMetrics] = []
+    for direction_pkts, other_pkts in [(a2b, b2a), (b2a, a2b)]:
+        if not direction_pkts:
+            continue
+        try:
+            m = _compute_metrics(direction_pkts, ptime_ms=ptime_ms)
+            m.is_one_way = not other_pkts
+            metrics.append(m)
+        except Exception as e:
+            logger.warning(f"Metrics error for {label}: {e}")
+    return metrics
+
+
 # ── Top-level entry point ─────────────────────────────────────────────────
 
 def analyze_rtp(
@@ -311,8 +335,7 @@ def analyze_rtp(
         return {}
 
     logger.info(f"Extracted {len(rtp_packets)} RTP packets for {len(answered)} answered call(s)")
-    results: dict[str, list[RTPStreamMetrics]] = []
-    results = {}
+    results: dict[str, list[RTPStreamMetrics]] = {}
 
     for session in answered:
         sip_pkts = sip_packet_map.get(session.call_id, [])
@@ -322,20 +345,7 @@ def analyze_rtp(
 
         a2b, b2a = correlate(rtp_packets, sdp)
         ptime = (sdp.caller_sdp or sdp.callee_sdp).ptime_ms
-
-        call_metrics: list[RTPStreamMetrics] = []
-        has_a2b = len(a2b) > 0
-        has_b2a = len(b2a) > 0
-
-        for direction_pkts, has_other in [(a2b, has_b2a), (b2a, has_a2b)]:
-            if not direction_pkts:
-                continue
-            try:
-                m = _compute_metrics(direction_pkts, ptime_ms=ptime)
-                m.is_one_way = not has_other
-                call_metrics.append(m)
-            except Exception as e:
-                logger.warning(f"Metrics error for {session.call_id}: {e}")
+        call_metrics = compute_call_metrics(a2b, b2a, ptime, label=session.call_id)
 
         if call_metrics:
             results[session.call_id] = call_metrics
