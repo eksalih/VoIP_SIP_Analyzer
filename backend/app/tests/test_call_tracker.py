@@ -213,3 +213,57 @@ class TestIncrementalUpdates:
         done = finals(events)
         assert done["a"].session.status == "ANSWERED"
         assert done["b"].session.status == "REJECTED"
+
+
+class TestMediaLiveness:
+    def _answered(self, **kw):
+        t = LiveCallTracker(media_idle_timeout=120, **kw)
+        run(t, [invite("c1", 100), resp(180, "Ringing", "c1", 101), resp(200, "OK", "c1", 105)])
+        return t
+
+    def test_call_closes_when_seen_media_stops_and_bye_was_missed(self):
+        t = self._answered()
+        t.note_media("c1", 500.0)
+        assert not t.advance(500 + 119)
+        ev = finals(t.advance(500 + 120))["c1"]
+        assert ev.reason == "media_stopped" and ev.session.status == "ANSWERED"
+        assert not ev.terminal
+
+    def test_ongoing_media_keeps_the_call_open(self):
+        t = self._answered()
+        for ts in range(200, 2000, 20):
+            t.note_media("c1", float(ts))
+            assert not t.advance(float(ts))
+        assert t.open_call_ids == ["c1"]
+
+    def test_call_whose_media_was_never_seen_is_not_closed_by_media_rule(self):
+        """RTP may simply not be on the mirror port; that must not cut the call off."""
+        t = self._answered()
+        assert not t.advance(105 + 3600)
+        assert t.open_call_ids == ["c1"]
+
+    def test_sip_activity_after_media_stops_keeps_the_call_open(self):
+        t = self._answered()
+        t.note_media("c1", 200.0)
+        run(t, [sip(f"INVITE sip:1002@{CALLEE} SIP/2.0", "c1", "2 INVITE", 300.0)])   # re-INVITE
+        assert not t.advance(300 + 119)
+        assert "c1" in finals(t.advance(300 + 120))
+
+    def test_bye_takes_precedence_over_media_rule(self):
+        t = self._answered(settle_seconds=30)
+        t.note_media("c1", 200.0)
+        run(t, [bye("c1", 210)])
+        ev = finals(t.advance(240))["c1"]
+        assert ev.reason == "settled" and ev.terminal
+
+    def test_media_for_unknown_or_finished_call_is_ignored(self):
+        t = LiveCallTracker()
+        t.note_media("nope", 100.0)                    # must not raise or create state
+        assert t.open_call_ids == []
+
+    def test_unanswered_call_is_unaffected_by_media_rule(self):
+        t = LiveCallTracker(idle_timeout=60, media_idle_timeout=120)
+        run(t, [invite("c1", 100), resp(180, "Ringing", "c1", 101)])
+        t.note_media("c1", 102.0)                      # early media
+        ev = finals(t.advance(101 + 60))["c1"]
+        assert ev.reason == "idle_timeout"

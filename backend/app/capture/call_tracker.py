@@ -17,8 +17,13 @@ Lifecycle of a tracked call
     which lets retransmissions and the 487/ACK/200-to-BYE exchange finish.
   * Calls that never became terminal are finalised after `idle_timeout` of
     silence ONLY if they were never answered. An answered call is silent on SIP
-    for its whole duration, so it stays open until BYE (or until media liveness
-    is wired in), with `max_call_age` as a hard backstop.
+    for its whole duration, so it stays open until BYE.
+  * Media liveness: the caller reports RTP with note_media(). An answered call
+    whose media was seen but then stopped for `media_idle_timeout` (and with no
+    SIP either) is finalised as "media_stopped", which catches a missed BYE.
+    Calls whose media was never seen (e.g. RTP not on the mirror port) are NOT
+    closed this way, so they cannot be cut off wrongly.
+  * `max_call_age` is a hard backstop for everything.
 
 Limitations: SIP over TCP is parsed one message per segment (no stream
 reassembly yet); IPv4/IPv6 UDP is the supported path.
@@ -44,11 +49,12 @@ class TrackerEvent:
     kind: str                     # "updated" | "finalized"
     session: CallSession          # freshly classified from all packets so far
     terminal: bool                # BYE / CANCEL / final failure already seen
-    reason: Optional[str] = None  # finalize reason: settled | idle_timeout | max_age | shutdown
+    reason: Optional[str] = None  # settled | idle_timeout | media_stopped | max_age | shutdown
 
 
 class _Tracked:
-    __slots__ = ("call_id", "packets", "first_ts", "last_ts", "terminal", "answered", "seen")
+    __slots__ = ("call_id", "packets", "first_ts", "last_ts", "terminal", "answered", "seen",
+                 "last_media_ts")
 
     def __init__(self, call_id: str, ts: float):
         self.call_id = call_id
@@ -57,6 +63,7 @@ class _Tracked:
         self.last_ts = ts
         self.terminal = False
         self.answered = False
+        self.last_media_ts: Optional[float] = None
         self.seen: dict[str, float] = {}   # duplicate-detection hash -> last timestamp
 
 
@@ -87,9 +94,11 @@ class LiveCallTracker:
         settle_seconds: float = 30.0,
         idle_timeout: float = 60.0,
         max_call_age: float = 4 * 3600.0,
+        media_idle_timeout: float = 120.0,
     ):
         self.settle_seconds = settle_seconds
         self.idle_timeout = idle_timeout
+        self.media_idle_timeout = media_idle_timeout
         self.max_call_age = max_call_age
         self._calls: dict[str, _Tracked] = {}
         self._finalised: dict[str, float] = {}
@@ -111,6 +120,13 @@ class LiveCallTracker:
         events.extend(self.advance(self._clock))
         return events
 
+    def note_media(self, call_id: str, timestamp: float) -> None:
+        """Record that RTP for this call was seen at `timestamp` (see RTPSpooler.feed)."""
+        tracked = self._calls.get(call_id)
+        if tracked is not None:
+            tracked.last_media_ts = max(tracked.last_media_ts or 0.0, timestamp)
+            self._clock = max(self._clock, timestamp)
+
     def advance(self, now: float) -> list[TrackerEvent]:
         """Move the clock forward (use time.time() in live mode) and finalise what has expired."""
         self._clock = max(self._clock, now)
@@ -125,6 +141,11 @@ class LiveCallTracker:
                 reason = "settled"
             elif not t.terminal and not t.answered and now - t.last_ts >= self.idle_timeout:
                 reason = "idle_timeout"
+            elif (
+                not t.terminal and t.answered and t.last_media_ts is not None
+                and now - max(t.last_ts, t.last_media_ts) >= self.media_idle_timeout
+            ):
+                reason = "media_stopped"
             if reason:
                 events.append(self._finalise(cid, reason))
 
