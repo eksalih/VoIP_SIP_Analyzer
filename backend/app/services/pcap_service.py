@@ -214,11 +214,20 @@ async def process_pcap_batch(
     }
 
 
-async def _upsert_call(session: CallSession, capture_file_id: int, db: AsyncSession) -> Call:
+async def _upsert_call(
+    session: CallSession,
+    capture_file_id: int,
+    db: AsyncSession,
+    source: str = "upload",
+    status_override: CallStatus | None = None,
+) -> Call:
     """
     Insert or update a Call record from a session.
     Lookup is scoped to (capture_file_id, call_id) — the same Call-ID string
     appearing in two different uploads must NOT be treated as the same call.
+
+    source/status_override serve the live capture path: a call that is still open
+    is stored with status IN_PROGRESS and refreshed as more SIP arrives.
     """
     result = await db.execute(
         select(Call).where(
@@ -228,12 +237,18 @@ async def _upsert_call(session: CallSession, capture_file_id: int, db: AsyncSess
     )
     call = result.scalar_one_or_none()
 
-    status_enum = _map_status(session.status)
+    status_enum = status_override or _map_status(session.status)
     vendor = detect_vendor(session.user_agent)
     vendor_category = detect_vendor_category(session.user_agent)
 
     if call:
         call.status = status_enum
+        call.ring_time = session.ringing_time or call.ring_time
+        call.answer_time = session.answer_time or call.answer_time
+        if session.user_agent and not call.user_agent:
+            call.user_agent = session.user_agent
+            call.vendor = vendor
+            call.vendor_category = vendor_category
         call.end_time = session.end_time
         call.ring_duration = session.ring_duration
         call.talk_duration = session.talk_duration
@@ -244,6 +259,7 @@ async def _upsert_call(session: CallSession, capture_file_id: int, db: AsyncSess
         call = Call(
             capture_file_id=capture_file_id,
             call_id=session.call_id,
+            source=source,
             caller=session.caller,
             called=session.called,
             display_name=session.display_name,
@@ -335,23 +351,34 @@ async def _save_call_audio(
         if not sdp.caller_sdp and not sdp.callee_sdp:
             continue
         a2b, b2a = correlate(rtp_packets, sdp)
-
-        rel_name = f"call_{call.id}.wav"
-        try:
-            result = reconstruct_audio(a2b, b2a, os.path.join(recordings_dir(), rel_name))
-        except UnsupportedCodecError as e:
-            logger.info(f"Call {session.call_id}: no audio saved ({e})")
-            continue
-        except Exception as e:
-            logger.warning(f"Call {session.call_id}: audio reconstruction error: {e}")
-            continue
-
-        if result:
-            call.audio_path = rel_name
-            call.audio_codec = result.codec
-            call.audio_duration = result.duration_seconds
+        write_call_audio(call, a2b, b2a)
 
     await db.flush()
+
+
+def write_call_audio(call: Call, a2b: list, b2a: list) -> bool:
+    """
+    Reconstruct a call's audio from its two RTP directions, write the WAV into the
+    recordings directory and record the result on the Call row. Best-effort:
+    returns False (and logs) when there is nothing to write or the codec is unsupported.
+    Shared by the upload path and the live capture finaliser.
+    """
+    os.makedirs(recordings_dir(), exist_ok=True)
+    rel_name = f"call_{call.id}.wav"
+    try:
+        result = reconstruct_audio(a2b, b2a, os.path.join(recordings_dir(), rel_name))
+    except UnsupportedCodecError as e:
+        logger.info(f"Call {call.call_id}: no audio saved ({e})")
+        return False
+    except Exception as e:
+        logger.warning(f"Call {call.call_id}: audio reconstruction error: {e}")
+        return False
+    if not result:
+        return False
+    call.audio_path = rel_name
+    call.audio_codec = result.codec
+    call.audio_duration = result.duration_seconds
+    return True
 
 
 async def _save_events(session: CallSession, call: Call, db: AsyncSession):
