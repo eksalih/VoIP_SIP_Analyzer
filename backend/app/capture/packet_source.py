@@ -163,6 +163,7 @@ class LiveInterfaceSource(PacketSource):
                 try:
                     yield self._queue.get(timeout=0.5)
                 except queue.Empty:
+                    self._raise_if_sniffer_died()
                     continue
             # Drain what was already captured before stopping
             while True:
@@ -172,6 +173,14 @@ class LiveInterfaceSource(PacketSource):
                     break
         finally:
             self._halt_sniffer()
+
+    def _raise_if_sniffer_died(self) -> None:
+        """A bad interface or missing permission kills Scapy's thread silently; surface it."""
+        sniffer = self._sniffer
+        thread = getattr(sniffer, "thread", None)
+        if sniffer is not None and thread is not None and not thread.is_alive() and not self._stopped.is_set():
+            err = getattr(sniffer, "exception", None)
+            raise OSError(f"packet capture on '{self.interface}' stopped unexpectedly: {err or 'unknown error'}")
 
     def _halt_sniffer(self) -> None:
         sniffer, self._sniffer = self._sniffer, None
