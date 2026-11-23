@@ -146,3 +146,47 @@ class TestLiveStore:
         async with AsyncSessionLocal() as db:
             by = {c.call_id: c.status for c in (await db.execute(select(Call))).scalars()}
         assert by["stale"] == CallStatus.UNKNOWN and by["upl"] == CallStatus.IN_PROGRESS
+
+
+class TestCaptureService:
+    @pytest.mark.asyncio
+    async def test_replay_through_service_matches_manual_pipeline(self, tmp_path, recordings):
+        from app.capture.service import CaptureService, CaptureSettings
+
+        pcap = _build_call_with_rtp(tmp_path / "a.pcap")
+        svc = CaptureService(
+            PcapReplaySource(str(pcap)),
+            LiveCallStore(AsyncSessionLocal),
+            CaptureSettings(spool_dir=str(tmp_path / "spool")),
+            live=False,
+        )
+        await svc.run()
+        async with AsyncSessionLocal() as db:
+            call = (await db.execute(select(Call))).scalar_one()
+            assert call.status == CallStatus.ANSWERED and call.source == "live" and call.has_audio
+            run = await db.get(CaptureFile, svc.run_id)
+            assert run.kind == "live" and run.calls_found == 1
+        assert svc.stats["calls_finalized"] == 1 and svc.stats["errors"] == 0
+        assert not any((tmp_path / "spool").iterdir())   # spool cleaned up
+
+    @pytest.mark.asyncio
+    async def test_store_failure_is_counted_and_does_not_stop_capture(self, tmp_path, recordings):
+        from app.capture.service import CaptureService, CaptureSettings
+
+        class Boom(LiveCallStore):
+            async def finalize(self, *a, **k):
+                raise RuntimeError("db down")
+
+        pcap = _build_call_with_rtp(tmp_path / "a.pcap")
+        svc = CaptureService(PcapReplaySource(str(pcap)), Boom(AsyncSessionLocal),
+                             CaptureSettings(spool_dir=str(tmp_path / "spool")), live=False)
+        await svc.run()
+        assert svc.stats["errors"] == 1
+
+    def test_settings_from_env(self, monkeypatch):
+        from app.capture.service import CaptureSettings
+        monkeypatch.setenv("CAPTURE_INTERFACE", "enp2s0")
+        monkeypatch.setenv("LIVE_RECORDING_ENABLED", "false")
+        monkeypatch.setenv("CAPTURE_SETTLE_SECONDS", "10")
+        s = CaptureSettings.from_env()
+        assert s.interface == "enp2s0" and s.record_audio is False and s.settle_seconds == 10.0
