@@ -36,6 +36,38 @@ services:
       retries: 3
       start_period: 10s
 
+  # v2.3.0 live capture. Optional: start it with
+  #   docker compose --profile capture up -d
+  # Set CAPTURE_INTERFACE in the root .env to the NIC cabled to your SPAN/mirror port
+  # (list the names with: docker compose --profile capture run --rm capture python -m app.capture --list-interfaces).
+  capture:
+    build:
+      context: ./backend
+    container_name: voip-capture
+    profiles: ["capture"]
+    command: ["python", "-m", "app.capture"]
+    # Host networking exposes the host's real NICs to the container; NET_RAW/NET_ADMIN allow sniffing.
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/voip_analyzer.db
+      - RECORDINGS_DIR=/app/data/recordings
+      - CAPTURE_SPOOL_DIR=/app/data/spool
+      - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-eth1}
+      - CAPTURE_FILTER=${CAPTURE_FILTER:-udp or tcp port 5060}
+      # Recording is on by default; set to false to keep call records and quality metrics only.
+      - LIVE_RECORDING_ENABLED=${LIVE_RECORDING_ENABLED:-true}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
   frontend:
     build:
       context: ./frontend

@@ -57,7 +57,18 @@ async def amain(settings: CaptureSettings) -> int:
     return 0
 
 
+def list_interfaces() -> None:
+    from scapy.all import get_if_list
+
+    print("Network interfaces (set CAPTURE_INTERFACE to the one connected to the mirror/SPAN port):")
+    for name in get_if_list():
+        print(f"  {name}")
+
+
 def main() -> None:
+    if "--list-interfaces" in sys.argv[1:]:
+        list_interfaces()
+        return
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     sys.exit(asyncio.run(amain(CaptureSettings.from_env())))
 
