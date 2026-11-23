@@ -1,15 +1,24 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+import os
 from contextlib import asynccontextmanager
 
-from app.db.database import init_db
+from app.db.database import init_db, AsyncSessionLocal
+from app.services.retention import retention_loop
 from app.api import calls, analytics, upload, health, replay, capture_files, export
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    yield
+    task = asyncio.create_task(
+        retention_loop(AsyncSessionLocal, float(os.getenv("RETENTION_INTERVAL_SECONDS", 3600)))
+    )
+    try:
+        yield
+    finally:
+        task.cancel()
 
 
 app = FastAPI(

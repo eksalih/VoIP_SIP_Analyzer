@@ -26,6 +26,10 @@ services:
       # v2.2.0: save reconstructed call audio (WAV, G.711 only) under ./data/recordings.
       # Off by default; recording calls may carry legal obligations in your jurisdiction.
       - SAVE_CALL_AUDIO=${SAVE_CALL_AUDIO:-false}
+      # v2.3.0 recording retention (recordings only; call records are kept). Checked hourly.
+      - RECORDINGS_RETENTION_DAYS=${RECORDINGS_RETENTION_DAYS:-180}
+      # Optional size cap in GB; the oldest recordings are deleted first. 0 = no cap.
+      - RECORDINGS_MAX_GB=${RECORDINGS_MAX_GB:-0}
     volumes:
       - ./data:/app/data
     restart: unless-stopped

@@ -96,3 +96,23 @@ class TestRetention:
         monkeypatch.setenv("RECORDINGS_RETENTION_DAYS", "abc")
         monkeypatch.setenv("RECORDINGS_MAX_GB", "250")
         assert retention_settings() == (180, 250.0)
+
+
+class TestRetentionLoop:
+    @pytest.mark.asyncio
+    async def test_loop_runs_and_survives_errors(self, rec_dir, monkeypatch):
+        import asyncio
+        from app.services import retention
+
+        calls = {"n": 0}
+
+        async def flaky(_factory):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("boom")
+
+        monkeypatch.setattr(retention, "run_retention", flaky)
+        task = asyncio.create_task(retention.retention_loop(AsyncSessionLocal, 0.01))
+        await asyncio.sleep(0.15)
+        task.cancel()
+        assert calls["n"] >= 2   # kept running after the first failure

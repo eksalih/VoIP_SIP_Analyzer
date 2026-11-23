@@ -8,6 +8,7 @@ so history and analytics are unaffected; the call simply shows no recording.
   RECORDINGS_MAX_GB          if the recordings exceed this size, delete the oldest first
                              until they fit (default 0 = no size limit)
 """
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
@@ -107,3 +108,15 @@ async def run_retention(
             f"freed {result.freed_bytes / 1024 ** 2:.1f} MB"
         )
     return result
+
+
+async def retention_loop(session_factory: async_sessionmaker, interval_seconds: float = 3600.0) -> None:
+    """Run retention now and then every `interval_seconds`; a failure never stops the loop."""
+    while True:
+        try:
+            await run_retention(session_factory)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Retention run failed; will retry next cycle")
+        await asyncio.sleep(interval_seconds)
