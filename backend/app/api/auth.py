@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -69,6 +69,21 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
     user.last_login = datetime.utcnow()
     await audit.record(db, user, "login", request=request)
     return {"token": create_token(user.id), "user": UserOut.of(user)}
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
+@router.post("/change-password")
+async def change_password(body: PasswordChange, request: Request, user: User = Depends(get_current_user),
+                          db: AsyncSession = Depends(get_db)):
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    user.password_hash = hash_password(body.new_password)
+    await audit.record(db, user, "password.change", request=request)
+    return {"status": "ok"}
 
 
 @router.get("/me", response_model=UserOut)
