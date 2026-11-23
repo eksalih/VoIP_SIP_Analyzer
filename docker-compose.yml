@@ -26,6 +26,11 @@ services:
       # v2.2.0: save reconstructed call audio (WAV, G.711 only) under ./data/recordings.
       # Off by default; recording calls may carry legal obligations in your jurisdiction.
       - SAVE_CALL_AUDIO=${SAVE_CALL_AUDIO:-false}
+      # v2.3.0 login. The first admin is created on first start; without ADMIN_PASSWORD a random
+      # password is generated and printed once in the backend log (docker compose logs backend).
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - AUTH_SECRET=${AUTH_SECRET:-}
       # v2.3.0 recording retention (recordings only; call records are kept). Checked hourly.
       - RECORDINGS_RETENTION_DAYS=${RECORDINGS_RETENTION_DAYS:-180}
       # Optional size cap in GB; the oldest recordings are deleted first. 0 = no cap.

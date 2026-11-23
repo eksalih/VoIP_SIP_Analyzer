@@ -93,7 +93,7 @@ async def _auto_migrate_missing_columns_for_engine(target_engine, declarative_ba
 
 
 async def init_db():
-    from app.models import call, sip_event, test_run, capture_file, rtp_stream  # noqa: F401
+    from app.models import call, sip_event, test_run, capture_file, rtp_stream, user  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     # Run after create_all so brand-new installs (no existing tables) skip

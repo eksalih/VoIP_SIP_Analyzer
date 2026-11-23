@@ -6,12 +6,13 @@ from contextlib import asynccontextmanager
 
 from app.db.database import init_db, AsyncSessionLocal
 from app.services.retention import retention_loop
-from app.api import calls, analytics, upload, health, replay, capture_files, export
+from app.api import calls, analytics, upload, health, replay, capture_files, export, auth
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await auth.bootstrap_admin(AsyncSessionLocal)
     task = asyncio.create_task(
         retention_loop(AsyncSessionLocal, float(os.getenv("RETENTION_INTERVAL_SECONDS", 3600)))
     )
@@ -36,6 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(health.router, prefix="/health", tags=["Health"])
 app.include_router(upload.router, prefix="/upload-pcap", tags=["Upload"])
 app.include_router(calls.router, prefix="/calls", tags=["Calls"])
