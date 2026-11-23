@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
 from typing import Optional
 
+from app.api.auth import require
 from app.db.database import get_db
+from app.models.user import User
+from app.services import audit
 from app.models.call import Call
 from app.models.capture_file import CaptureFile
 from app.schemas.schemas import CaptureFileSchema
@@ -62,7 +65,8 @@ async def update_capture_file(
 
 
 @router.delete("/{capture_file_id}")
-async def delete_capture_file(capture_file_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_capture_file(request: Request, capture_file_id: int, db: AsyncSession = Depends(get_db),
+                              user: User = Depends(require("calls.delete"))):
     """Delete a capture file and all calls/events derived from it."""
     result = await db.execute(select(CaptureFile).where(CaptureFile.id == capture_file_id))
     cf = result.scalar_one_or_none()
@@ -77,4 +81,5 @@ async def delete_capture_file(capture_file_id: int, db: AsyncSession = Depends(g
     await db.delete(cf)
     await db.flush()
     remove_audio_files(audio_paths)
+    await audit.record(db, user, "capture_file.delete", request=request, detail=f"id {capture_file_id}")
     return {"deleted": capture_file_id}

@@ -5,13 +5,15 @@ import secrets
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.database import get_db
 from app.models.user import User
+from app.services import audit
+from app.services.permissions import has_permission
 from app.services.security import create_token, decode_token, hash_password, verify_password
 
 logger = logging.getLogger(__name__)
@@ -48,13 +50,24 @@ async def get_current_user(
     return user
 
 
+def require(*permissions: str):
+    """Dependency: the current user must hold at least one of the given permissions."""
+    async def dependency(user: User = Depends(get_current_user)) -> User:
+        if not any(has_permission(user, p) for p in permissions):
+            raise HTTPException(status_code=403, detail="You do not have permission to do this")
+        return user
+    return dependency
+
+
 @router.post("/login")
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.username == body.username.strip()))).scalar_one_or_none()
     # Same error for unknown user and wrong password
     if user is None or not user.is_active or not verify_password(body.password, user.password_hash):
+        await audit.record(db, user, "login_failed", request=request, username=body.username.strip()[:64])
         raise HTTPException(status_code=401, detail="Invalid username or password")
     user.last_login = datetime.utcnow()
+    await audit.record(db, user, "login", request=request)
     return {"token": create_token(user.id), "user": UserOut.of(user)}
 
 

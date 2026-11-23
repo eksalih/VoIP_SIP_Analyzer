@@ -1,6 +1,7 @@
 """v2.3.0 login foundation: hashing, tokens, login/me, first-admin bootstrap."""
 import pytest
 import pytest_asyncio
+
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
 
@@ -12,6 +13,8 @@ from app.services.security import (
     create_token, decode_token, hash_password, verify_password,
 )
 
+
+pytestmark = pytest.mark.real_auth
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db(tmp_path, monkeypatch):

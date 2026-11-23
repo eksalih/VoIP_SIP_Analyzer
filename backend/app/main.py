@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import os
@@ -39,9 +39,14 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(health.router, prefix="/health", tags=["Health"])
-app.include_router(upload.router, prefix="/upload-pcap", tags=["Upload"])
+app.include_router(upload.router, prefix="/upload-pcap", tags=["Upload"],
+                   dependencies=[Depends(auth.require("analysis.use"))])
 app.include_router(calls.router, prefix="/calls", tags=["Calls"])
-app.include_router(capture_files.router, prefix="/capture-files", tags=["Capture Files"])
-app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
-app.include_router(replay.router, prefix="/replay-test", tags=["Replay"])
-app.include_router(export.router, prefix="/export", tags=["Export"])
+app.include_router(capture_files.router, prefix="/capture-files", tags=["Capture Files"],
+                   dependencies=[Depends(auth.require("calls.view_all"))])
+app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"],
+                   dependencies=[Depends(auth.require("calls.view_all"))])
+app.include_router(replay.router, prefix="/replay-test", tags=["Replay"],
+                   dependencies=[Depends(auth.require("analysis.use"))])
+app.include_router(export.router, prefix="/export", tags=["Export"],
+                   dependencies=[Depends(auth.require("calls.view_all"))])

@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from typing import Optional
 
+from app.api.auth import require
 from app.db.database import get_db
+from app.models.user import User
+from app.services import audit
+from app.services.permissions import call_scope, can_access_call, has_permission
 from app.models.call import Call
 from app.models.sip_event import SIPEvent
 from app.models.test_run import TestRun
@@ -26,9 +30,13 @@ async def list_calls(
     capture_file_id: Optional[int] = Query(None, description="Filter to calls from a single uploaded capture file"),
     vendor: Optional[str] = Query(None, description="Filter to calls from a detected vendor, e.g. Yeastar"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require("calls.view_all", "calls.view_own")),
 ):
-    """List all calls with optional filters."""
+    """List calls (limited to the user's own extensions unless they may see all) with optional filters."""
     q = select(Call).order_by(Call.start_time.desc())
+    scope = call_scope(user)
+    if scope is not None:
+        q = q.where(scope)
 
     if status:
         q = q.where(Call.status == status.upper())
@@ -53,8 +61,10 @@ async def list_calls(
 
 @router.delete("/clear-all")
 async def clear_all_data(
+    request: Request,
     confirm: bool = Query(False, description="Must be true to actually clear data"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require("calls.delete")),
 ):
     """
     Permanently delete ALL calls, SIP events, test runs, and capture file records.
@@ -83,6 +93,7 @@ async def clear_all_data(
 
     # Remove reconstructed recordings too (only after the DB commit succeeded).
     audio_removed = remove_all_audio()
+    await audit.record(db, user, "calls.clear_all", request=request, detail=f"{calls_count} calls")
 
     return {
         "status": "ok",
@@ -98,13 +109,18 @@ async def clear_all_data(
     }
 
 
-@router.get("/{call_id}", response_model=CallDetailSchema)
-async def get_call(call_id: int, db: AsyncSession = Depends(get_db)):
-    """Get a single call with all SIP events."""
-    result = await db.execute(select(Call).where(Call.id == call_id))
-    call = result.scalar_one_or_none()
-    if not call:
+async def _accessible_call(db: AsyncSession, call_id: int, user: User) -> Call:
+    """Fetch a call the user may see. Hidden calls look exactly like missing ones (404)."""
+    call = (await db.execute(select(Call).where(Call.id == call_id))).scalar_one_or_none()
+    if not call or not can_access_call(user, call):
         raise HTTPException(status_code=404, detail="Call not found")
+    return call
+
+
+@router.get("/{call_id}", response_model=CallDetailSchema)
+async def get_call(call_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(require("calls.view_all", "calls.view_own"))):
+    """Get a single call with all SIP events."""
+    call = await _accessible_call(db, call_id, user)
 
     events_result = await db.execute(
         select(SIPEvent)
@@ -129,8 +145,9 @@ async def get_call(call_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{call_id}/events", response_model=list[SIPEventSchema])
-async def get_call_events(call_id: int, db: AsyncSession = Depends(get_db)):
+async def get_call_events(call_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(require("calls.view_all", "calls.view_own"))):
     """Get all SIP events for a call."""
+    await _accessible_call(db, call_id, user)
     result = await db.execute(
         select(SIPEvent)
         .where(SIPEvent.call_id == call_id)
@@ -140,12 +157,16 @@ async def get_call_events(call_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{call_id}/media", response_model=list[RTPStreamSchema])
-async def get_call_media(call_id: int, db: AsyncSession = Depends(get_db)):
+async def get_call_media(call_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(require("calls.view_all", "calls.view_own"))):
     """
     Get RTP media quality metrics for a call.
     Returns an empty list for MISSED/REJECTED/CANCELLED calls,
     or for captures that don't include RTP alongside SIP signaling.
+    A missing call and a call the user may not see both return [] (as before for missing calls).
     """
+    call = (await db.execute(select(Call).where(Call.id == call_id))).scalar_one_or_none()
+    if call is None or not can_access_call(user, call):
+        return []
     result = await db.execute(
         select(RTPStream).where(RTPStream.call_id == call_id)
     )
@@ -154,30 +175,41 @@ async def get_call_media(call_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.get("/{call_id}/audio")
 async def get_call_audio(
+    request: Request,
     call_id: int,
     download: bool = Query(False, description="Send as an attachment instead of inline"),
     range: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require("recordings.play", "recordings.download")),
 ):
     """
     Stream the reconstructed call audio (stereo WAV: caller left, callee right),
     with Range support so browser players can seek.
     404 when audio was not saved (SAVE_CALL_AUDIO off, non-G.711 codec, no RTP).
     """
-    result = await db.execute(select(Call).where(Call.id == call_id))
-    call = result.scalar_one_or_none()
-    if not call:
-        raise HTTPException(status_code=404, detail="Call not found")
+    call = await _accessible_call(db, call_id, user)
+    if download and not has_permission(user, "recordings.download"):
+        raise HTTPException(status_code=403, detail="You do not have permission to download recordings")
+    if not download and not has_permission(user, "recordings.play"):
+        raise HTTPException(status_code=403, detail="You do not have permission to play recordings")
 
     path = resolve_audio_path(call.audio_path)
     if not path:
         raise HTTPException(status_code=404, detail="No audio available for this call")
 
+    # Browsers fetch one recording in many Range requests; log a play once (when it starts).
+    starts_playback = not range or range.replace(" ", "").startswith("bytes=0-")
+    if download:
+        await audit.record(db, user, "recording.download", call_id=call.id, request=request)
+    elif starts_playback:
+        await audit.record(db, user, "recording.play", call_id=call.id, request=request)
+
     return build_audio_response(path, f"call_{call.id}.wav", range, download)
 
 
 @router.delete("/{call_id}")
-async def delete_call(call_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_call(request: Request, call_id: int, db: AsyncSession = Depends(get_db),
+                      user: User = Depends(require("calls.delete"))):
     """Delete a call, its events and its saved audio."""
     result = await db.execute(select(Call).where(Call.id == call_id))
     call = result.scalar_one_or_none()
@@ -187,4 +219,5 @@ async def delete_call(call_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(call)
     await db.flush()
     remove_audio_files([audio_path])
+    await audit.record(db, user, "call.delete", call_id=call_id, request=request)
     return {"deleted": call_id}
