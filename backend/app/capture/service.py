@@ -86,7 +86,7 @@ class CaptureService:
 
     async def run(self) -> None:
         await self.store.recover_orphans()
-        self.run_id = await self.store.start_run()
+        await self.store.purge_empty_runs()   # clear empty entries left by earlier starts
         self._publish_status(running=True)
         ticker = asyncio.create_task(self._tick_loop()) if self.live else None
         iterator = iter(self.source)
@@ -144,15 +144,22 @@ class CaptureService:
                 self.stats["errors"] += 1
                 logger.exception(f"Failed to store call {ev.session.call_id}")
 
+    async def _ensure_run(self) -> int:
+        """The capture run is created when the first call is stored, so an idle service leaves nothing behind."""
+        if self.run_id is None:
+            self.run_id = await self.store.start_run()
+        return self.run_id
+
     async def _handle(self, ev: TrackerEvent) -> None:
         call_id = ev.session.call_id
+        run_id = await self._ensure_run()
         if ev.kind == "updated":
             self.spooler.update_sdp(call_id, extract_sdp(ev.session.packets))
-            await self.store.update(self.run_id, ev.session)
+            await self.store.update(run_id, ev.session)
             return
         data = self.spooler.load(call_id)
         try:
-            await self.store.finalize(self.run_id, ev.session, data)
+            await self.store.finalize(run_id, ev.session, data)
             self.stats["calls_finalized"] += 1
         finally:
             self.spooler.close_call(call_id)

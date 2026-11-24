@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, exists
 from pydantic import BaseModel
 from typing import Optional
 
@@ -29,6 +29,8 @@ async def list_capture_files(
     """List all uploaded capture files, most recent first."""
     q = (
         select(CaptureFile)
+        # a live run with no calls is not worth showing
+        .where((CaptureFile.kind != "live") | exists().where(Call.capture_file_id == CaptureFile.id))
         .order_by(CaptureFile.uploaded_at.desc())
         .offset(skip)
         .limit(limit)

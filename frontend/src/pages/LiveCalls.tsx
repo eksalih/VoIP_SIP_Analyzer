@@ -88,30 +88,37 @@ export default function LiveCalls({ onSelectCall }: { onSelectCall: (id: number)
       {viewAll && status && <StatusBanner s={status} />}
       {error && <div className="upload-error-banner">{error}</div>}
 
-      <h3 className="live-heading">In progress ({active.length})</h3>
       {!loaded ? (
         <div className="loading-state"><div className="spinner" /></div>
-      ) : active.length === 0 ? (
-        <div className="empty-state"><p>No calls in progress.</p></div>
-      ) : (
-        <div className="table-wrap">
-          <table className="calls-table">
-            <thead><tr><th>Started</th><th>From</th><th>To</th><th>State</th><th>Call-ID</th></tr></thead>
-            <tbody>{rows(active, true)}</tbody>
-          </table>
+      ) : active.length === 0 && recent.length === 0 ? (
+        <div className="empty-state">
+          <p>No calls yet. Live calls appear here as soon as one starts.</p>
         </div>
-      )}
-
-      <h3 className="live-heading">Just finished</h3>
-      {recent.length === 0 ? (
-        <div className="empty-state"><p>Nothing yet.</p></div>
       ) : (
-        <div className="table-wrap">
-          <table className="calls-table">
-            <thead><tr><th>Started</th><th>From</th><th>To</th><th>Result</th><th>Duration</th><th>Rec</th><th>Call-ID</th></tr></thead>
-            <tbody>{rows(recent, false)}</tbody>
-          </table>
-        </div>
+        <>
+          {active.length > 0 && (
+            <>
+              <h3 className="live-heading">In progress ({active.length})</h3>
+              <div className="table-wrap">
+                <table className="calls-table">
+                  <thead><tr><th>Started</th><th>From</th><th>To</th><th>State</th><th>Call-ID</th></tr></thead>
+                  <tbody>{rows(active, true)}</tbody>
+                </table>
+              </div>
+            </>
+          )}
+          {recent.length > 0 && (
+            <>
+              <h3 className="live-heading">Just finished</h3>
+              <div className="table-wrap">
+                <table className="calls-table">
+                  <thead><tr><th>Started</th><th>From</th><th>To</th><th>Result</th><th>Duration</th><th>Rec</th><th>Call-ID</th></tr></thead>
+                  <tbody>{rows(recent, false)}</tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );

@@ -190,3 +190,49 @@ class TestCaptureService:
         monkeypatch.setenv("CAPTURE_SETTLE_SECONDS", "10")
         s = CaptureSettings.from_env()
         assert s.interface == "enp2s0" and s.record_audio is False and s.settle_seconds == 10.0
+
+
+class TestNoEmptyRuns:
+    @pytest.mark.asyncio
+    async def test_idle_service_creates_no_capture_run(self, tmp_path, recordings):
+        from app.capture.service import CaptureService, CaptureSettings
+
+        empty = tmp_path / "empty.pcap"
+        from scapy.all import wrpcap
+        wrpcap(str(empty), [])
+        svc = CaptureService(PcapReplaySource(str(empty)), LiveCallStore(AsyncSessionLocal),
+                             CaptureSettings(spool_dir=str(tmp_path / "sp")), live=False)
+        await svc.run()
+        assert svc.run_id is None
+        async with AsyncSessionLocal() as db:
+            assert (await db.execute(select(func.count(CaptureFile.id)))).scalar() == 0
+
+    @pytest.mark.asyncio
+    async def test_purge_removes_empty_live_runs_but_keeps_uploads_and_used_runs(self, tmp_path, recordings):
+        store = LiveCallStore(AsyncSessionLocal)
+        for _ in range(3):
+            await store.start_run()                      # empty leftovers from earlier restarts
+        async with AsyncSessionLocal() as db:
+            db.add(CaptureFile(filename="upload-no-calls.pcap", kind="upload"))
+            await db.commit()
+        assert await store.purge_empty_runs() == 3       # leftovers go
+        assert await store.purge_empty_runs() == 0       # idempotent
+        used = await _replay(_build_call_with_rtp(tmp_path / "a.pcap"), tmp_path, store)
+        async with AsyncSessionLocal() as db:
+            names = {f.filename for f in (await db.execute(select(CaptureFile))).scalars()}
+        assert "upload-no-calls.pcap" in names and len(names) == 2
+        assert any(n.startswith("Live capture") for n in names)
+        assert used
+
+    @pytest.mark.asyncio
+    async def test_capture_file_list_hides_empty_live_runs(self, tmp_path, recordings):
+        from httpx import AsyncClient, ASGITransport
+        from app.main import app
+
+        await LiveCallStore(AsyncSessionLocal).start_run()
+        async with AsyncSessionLocal() as db:
+            db.add(CaptureFile(filename="x.pcap", kind="upload"))
+            await db.commit()
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            names = [f["filename"] for f in (await c.get("/capture-files")).json()]
+        assert names == ["x.pcap"]

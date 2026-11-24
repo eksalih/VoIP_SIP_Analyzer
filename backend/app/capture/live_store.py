@@ -16,7 +16,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import delete, func, select, update as sql_update
+from sqlalchemy import delete, exists, func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.capture.rtp_spool import SpoolData
@@ -59,10 +59,26 @@ class LiveCallStore:
             await db.commit()
             return run.id
 
-    async def end_run(self, run_id: int) -> None:
+    async def end_run(self, run_id: Optional[int]) -> None:
+        """Update the run's counts; a run that never saw a call is removed, not left as an empty entry."""
+        if run_id is None:
+            return
         async with self._session_factory() as db:
             await self._refresh_counts(db, run_id)
             await db.commit()
+        await self.purge_empty_runs()
+
+    async def purge_empty_runs(self) -> int:
+        """Remove live capture runs that contain no calls (left by earlier starts and restarts)."""
+        async with self._session_factory() as db:
+            result = await db.execute(
+                delete(CaptureFile).where(
+                    CaptureFile.kind == "live",
+                    ~exists().where(Call.capture_file_id == CaptureFile.id),
+                )
+            )
+            await db.commit()
+            return result.rowcount or 0
 
     async def recover_orphans(self) -> int:
         """Calls left IN_PROGRESS by a crashed or killed earlier run can never finish; mark them UNKNOWN."""
