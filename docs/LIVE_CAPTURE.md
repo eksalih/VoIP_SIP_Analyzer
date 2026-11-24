@@ -1,4 +1,4 @@
-# Live Capture Guide (v2.3.0)
+# Live Capture Guide
 
 Live capture listens to a **mirror (SPAN) port** on your network, follows SIP calls as
 they happen, records the audio, and stores everything in the same database as uploaded
