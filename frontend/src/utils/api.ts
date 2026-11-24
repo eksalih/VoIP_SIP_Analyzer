@@ -1,9 +1,20 @@
-import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile } from "../types";
+import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile, AuthUser } from "../types";
+import { AUTH_EXPIRED_EVENT, getToken, setToken } from "./auth";
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+function withAuth(opts?: RequestInit): RequestInit {
+  const token = getToken();
+  if (!token) return opts ?? {};
+  return { ...opts, headers: { ...(opts?.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` } };
+}
+
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, opts);
+  const res = await fetch(`${BASE}${path}`, withAuth(opts));
+  if (res.status === 401 && !path.startsWith("/auth/login")) {
+    setToken(null);
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `HTTP ${res.status}`);
@@ -28,8 +39,56 @@ export const api = {
 
   getCallMedia: (id: number) => apiFetch<import("../types").RTPStream[]>(`/calls/${id}/media`),
 
-  // Direct URL for <audio src> / download links (reconstructed WAV, v2.2.0)
-  callAudioUrl: (id: number) => `${BASE}/calls/${id}/audio`,
+  // <audio> and <a> cannot send an Authorization header, so recordings are fetched with the
+  // token and played from a blob URL (v2.3.0). Seeking works because the whole file is local.
+  fetchCallAudio: async (id: number, download = false): Promise<Blob> => {
+    const res = await fetch(`${BASE}/calls/${id}/audio${download ? "?download=1" : ""}`, withAuth());
+    if (res.status === 401) {
+      setToken(null);
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    return res.blob();
+  },
+
+  /** Authenticated file download (CSV/PDF exports): a plain link cannot send the login token. */
+  downloadFile: async (path: string): Promise<void> => {
+    const res = await fetch(`${BASE}${path}`, withAuth());
+    if (res.status === 401) {
+      setToken(null);
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    const match = /filename="?([^";]+)"?/.exec(res.headers.get("Content-Disposition") || "");
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = match ? match[1] : "export";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  },
+
+  login: (username: string, password: string) =>
+    apiFetch<{ token: string; user: AuthUser }>("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }),
+
+  me: () => apiFetch<AuthUser>("/auth/me"),
+
+  changePassword: (current_password: string, new_password: string) =>
+    apiFetch<{ status: string }>("/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password, new_password }),
+    }),
 
   deleteCall: (id: number) => apiFetch<void>(`/calls/${id}`, { method: "DELETE" }),
 

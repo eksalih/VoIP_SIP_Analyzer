@@ -120,3 +120,12 @@ export interface BatchUploadResult {
   combined_summary: Record<string, number>;
   files: UploadResult[];
 }
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  display_name: string | null;
+  role: "admin" | "supervisor" | "user";
+  extensions: string[];
+  permissions: string[];
+}

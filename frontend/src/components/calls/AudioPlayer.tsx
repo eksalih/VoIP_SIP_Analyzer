@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../utils/api";
+import { useAuth } from "../../utils/AuthContext";
 
 interface Props {
   callId: number;
@@ -12,32 +13,64 @@ interface Props {
 const SPEEDS = [0.5, 1, 1.5, 2];
 
 /**
- * Playback for audio reconstructed from a call's RTP (v2.2.0).
- * The audio URL is built from the API base URL (VITE_API_URL), never a bare
- * relative path — a relative path would resolve against the frontend's own
- * origin and silently fail to load.
+ * Playback for a recorded call. The browser's <audio> element cannot send the login
+ * token, so the recording is fetched with it and played from a local blob URL.
+ * It loads when the user presses Play, not when the page opens, so browsing calls
+ * never downloads audio and every playback is a deliberate (and audit-logged) action.
  */
 export default function AudioPlayer({ callId, status, hasAudio, codec, duration }: Props) {
+  const { can } = useAuth();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [speed, setSpeed] = useState(1);
-  const [loadError, setLoadError] = useState(false);
+  const [src, setSrc] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Free the blob and reset when switching calls or leaving the page
+  useEffect(() => {
+    return () => { if (src) URL.revokeObjectURL(src); };
+  }, [src]);
+  useEffect(() => { setSrc(null); setError(null); }, [callId]);
 
   if (!hasAudio) {
-    // Only answered calls can have audio; stay quiet for the rest.
     if (status !== "ANSWERED") return null;
     return (
       <div className="audio-player audio-empty">
-        <strong>No audio saved for this call.</strong>
+        <strong>No recording for this call.</strong>
         <div style={{ opacity: 0.8, marginTop: 4, fontSize: 13 }}>
-          Audio is only reconstructed when <code>SAVE_CALL_AUDIO=true</code> is set on the server
-          (then re-upload the capture), the capture contains RTP for this call, and the codec is
-          G.711 (PCMU/PCMA).
+          Recordings exist when recording was enabled, the media was captured, the codec is
+          G.711 (PCMU/PCMA), and the recording has not been removed by retention cleanup.
         </div>
       </div>
     );
   }
 
-  const url = api.callAudioUrl(callId);
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const blob = await api.fetchCallAudio(callId);
+      setSrc(URL.createObjectURL(blob));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load the recording");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const download = async () => {
+    try {
+      const blob = await api.fetchCallAudio(callId, true);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `call_${callId}.wav`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Download failed");
+    }
+  };
 
   const changeSpeed = (s: number) => {
     if (audioRef.current) audioRef.current.playbackRate = s;
@@ -47,27 +80,27 @@ export default function AudioPlayer({ callId, status, hasAudio, codec, duration 
   return (
     <div className="audio-player" style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 13, marginBottom: 6, opacity: 0.8 }}>
-        Reconstructed audio · {codec}
+        Recording · {codec}
         {duration != null && ` · ${duration}s`}
         {" · caller left channel, callee right channel"}
       </div>
 
-      <audio
-        ref={audioRef}
-        controls
-        preload="metadata"
-        src={url}
-        style={{ width: "100%" }}
-        onError={() => setLoadError(true)}
-        onLoadedData={() => setLoadError(false)}
-      />
-
-      {loadError && (
-        <div style={{ color: "#f44336", fontSize: 13, marginTop: 6 }}>
-          Could not load the audio from the server ({url}). Check that the backend is reachable
-          from this browser.
-        </div>
+      {src ? (
+        <audio
+          ref={audioRef}
+          controls
+          autoPlay
+          src={src}
+          style={{ width: "100%" }}
+          onLoadedMetadata={() => { if (audioRef.current) audioRef.current.playbackRate = speed; }}
+        />
+      ) : (
+        <button className="export-btn" onClick={load} disabled={loading}>
+          {loading ? "Loading recording…" : "▶ Play recording"}
+        </button>
       )}
+
+      {error && <div style={{ color: "#f44336", fontSize: 13, marginTop: 6 }}>{error}</div>}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, fontSize: 13 }}>
         <span style={{ opacity: 0.8 }}>Speed:</span>
@@ -81,9 +114,11 @@ export default function AudioPlayer({ callId, status, hasAudio, codec, duration 
             {s}x
           </button>
         ))}
-        <a href={`${url}?download=1`} download={`call_${callId}.wav`} style={{ marginLeft: "auto" }}>
-          Download WAV
-        </a>
+        {can("recordings.download") && (
+          <button className="export-btn" style={{ marginLeft: "auto" }} onClick={download}>
+            Download WAV
+          </button>
+        )}
       </div>
     </div>
   );

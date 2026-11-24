@@ -3,13 +3,12 @@ import type { CaptureFile } from "../../types";
 import { formatDateTime } from "../../utils/format";
 import { api } from "../../utils/api";
 
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 interface Props {
   file: CaptureFile;
   selected: boolean;
   onClick: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;   // omitted for roles that may not delete
   onLabelChange: (id: number, label: string | null) => void;
 }
 
@@ -63,10 +62,7 @@ export default function CaptureFileCard({ file, selected, onClick, onDelete, onL
 
   const handleExport = (format: "csv" | "pdf", e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = `${BASE}/export/${format}?capture_file_id=${file.id}`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.click();
+    api.downloadFile(`/export/${format}?capture_file_id=${file.id}`).catch((err) => alert(err.message));
   };
 
   return (
@@ -77,7 +73,9 @@ export default function CaptureFileCard({ file, selected, onClick, onDelete, onL
         <div className="capture-card-actions">
           <button className="capture-card-action-btn"     title="Download CSV" onClick={(e) => handleExport("csv", e)}>CSV</button>
           <button className="capture-card-action-btn pdf" title="Download PDF"  onClick={(e) => handleExport("pdf", e)}>PDF</button>
-          <button className="capture-card-delete" title="Delete" onClick={(e) => { e.stopPropagation(); onDelete(); }}>✕</button>
+          {onDelete && (
+            <button className="capture-card-delete" title="Delete" onClick={(e) => { e.stopPropagation(); onDelete(); }}>✕</button>
+          )}
         </div>
       </div>
 

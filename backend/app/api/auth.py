@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.database import get_db
 from app.models.user import User
 from app.services import audit
-from app.services.permissions import has_permission
+from app.services.permissions import ROLE_PERMISSIONS, has_permission
 from app.services.security import create_token, decode_token, hash_password, verify_password
 
 logger = logging.getLogger(__name__)
@@ -31,11 +31,13 @@ class UserOut(BaseModel):
     display_name: Optional[str] = None
     role: str
     extensions: list[str] = []
+    permissions: list[str] = []   # "*" means everything
 
     @classmethod
     def of(cls, u: User) -> "UserOut":
         return cls(id=u.id, username=u.username, display_name=u.display_name,
-                   role=u.role, extensions=u.extension_list)
+                   role=u.role, extensions=u.extension_list,
+                   permissions=sorted(ROLE_PERMISSIONS.get(u.role, set())))
 
 
 async def get_current_user(

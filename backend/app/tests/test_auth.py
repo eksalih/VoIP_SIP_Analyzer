@@ -74,6 +74,7 @@ class TestAuthApi:
         r = await client.post("/auth/login", json={"username": "sam", "password": "s3cret"})
         assert r.status_code == 200
         body = r.json()
+        assert body["user"]["permissions"] == ["calls.view_own", "recordings.play"]
         assert body["user"]["extensions"] == ["1001", "1002"] and "password" not in str(body)
         me = await client.get("/auth/me", headers={"Authorization": f"Bearer {body['token']}"})
         assert me.status_code == 200 and me.json()["username"] == "sam"

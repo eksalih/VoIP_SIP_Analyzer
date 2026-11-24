@@ -3,12 +3,12 @@ import { api } from "../utils/api";
 import { formatDateTime, formatDuration, shortCallId } from "../utils/format";
 import StatusBadge from "../components/shared/StatusBadge";
 import VendorBadge from "../components/shared/VendorBadge";
+import { useAuth } from "../utils/AuthContext";
 import UploadPanel from "../components/calls/UploadPanel";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
 import CaptureFileCard from "../components/calls/CaptureFileCard";
 import type { Call, CallStatus, UploadResult, BatchUploadResult, CaptureFile } from "../types";
 
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 interface Props {
   onSelectCall: (id: number) => void;
@@ -22,13 +22,15 @@ function isBatchResult(r: UploadResult | BatchUploadResult): r is BatchUploadRes
   return "files_processed" in r;
 }
 
-function triggerDownload(url: string) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.click();
+function triggerDownload(path: string) {
+  api.downloadFile(path).catch((err) => alert(err.message));
 }
 
 export default function Dashboard({ onSelectCall }: Props) {
+  const { can } = useAuth();
+  const viewAll = can("calls.view_all");   // supervisors/admins: capture files, exports
+  const canUpload = can("analysis.use");
+  const canDelete = can("calls.delete");   // admin only
   const [calls, setCalls] = useState<Call[]>([]);
   const [captureFiles, setCaptureFiles] = useState<CaptureFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +38,7 @@ export default function Dashboard({ onSelectCall }: Props) {
   const [filter, setFilter] = useState<CallStatus | "ALL">("ALL");
   const [vendorFilter, setVendorFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("files");
+  const [viewMode, setViewMode] = useState<ViewMode>(viewAll ? "files" : "all");
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
 
   const [uploadBanner, setUploadBanner] = useState<UploadResult | BatchUploadResult | null>(null);
@@ -46,6 +48,7 @@ export default function Dashboard({ onSelectCall }: Props) {
   const [knownVendors, setKnownVendors] = useState<string[]>([]);
 
   const loadFiles = useCallback(async () => {
+    if (!viewAll) { setCaptureFiles([]); setFilesLoading(false); return; }
     setFilesLoading(true);
     try {
       const data = await api.getCaptureFiles({ limit: 200 });
@@ -55,7 +58,7 @@ export default function Dashboard({ onSelectCall }: Props) {
     } finally {
       setFilesLoading(false);
     }
-  }, []);
+  }, [viewAll]);
 
   // Derive the distinct vendor list from an unfiltered call fetch, so the
   // vendor dropdown options don't disappear when a status/vendor filter is active.
@@ -132,37 +135,37 @@ export default function Dashboard({ onSelectCall }: Props) {
       <div className="page-header page-header-row">
         <div>
           <h1 className="page-title">Call Log</h1>
-          <p className="page-subtitle">Upload PCAP captures to analyze SIP calls</p>
+          <p className="page-subtitle">{viewAll ? "Live and uploaded SIP calls" : "Calls for your extensions"}</p>
         </div>
         <div className="header-actions">
-          <button
+          {viewAll && <button
             className="export-btn csv"
-            onClick={() => triggerDownload(`${BASE}/export/csv`)}
+            onClick={() => triggerDownload("/export/csv")}
             disabled={captureFiles.length === 0}
             title="Export all calls as CSV"
           >
             ↓ CSV
-          </button>
-          <button
+          </button>}
+          {viewAll && <button
             className="export-btn pdf"
-            onClick={() => triggerDownload(`${BASE}/export/pdf`)}
+            onClick={() => triggerDownload("/export/pdf")}
             disabled={captureFiles.length === 0}
             title="Export PDF compatibility report"
           >
             ↓ PDF
-          </button>
-          <button
+          </button>}
+          {canDelete && <button
             className="clear-data-btn"
             onClick={() => setShowClearConfirm(true)}
             disabled={captureFiles.length === 0}
             title="Permanently delete all calls, events, capture files, and test runs"
           >
             🗑 Clear All Data
-          </button>
+          </button>}
         </div>
       </div>
 
-      <UploadPanel onSuccess={handleUpload} />
+      {canUpload && <UploadPanel onSuccess={handleUpload} />}
 
       {clearedBanner && (
         <div className="cleared-banner">
@@ -209,14 +212,14 @@ export default function Dashboard({ onSelectCall }: Props) {
       )}
 
       {/* View toggle */}
-      <div className="view-toggle">
+      {viewAll && <div className="view-toggle">
         <button className={`view-tab ${viewMode === "files" ? "active" : ""}`} onClick={() => setViewMode("files")}>
           By Capture File {captureFiles.length > 0 && `(${captureFiles.length})`}
         </button>
         <button className={`view-tab ${viewMode === "all" ? "active" : ""}`} onClick={() => { setViewMode("all"); setSelectedFileId(null); }}>
           All Calls {totalCallsAcrossFiles > 0 && `(${totalCallsAcrossFiles})`}
         </button>
-      </div>
+      </div>}
 
       {/* Capture file grid */}
       {viewMode === "files" && (
@@ -232,7 +235,7 @@ export default function Dashboard({ onSelectCall }: Props) {
                 file={f}
                 selected={selectedFileId === f.id}
                 onClick={() => setSelectedFileId(selectedFileId === f.id ? null : f.id)}
-                onDelete={() => setFileToDelete(f)}
+                onDelete={canDelete ? () => setFileToDelete(f) : undefined}
                 onLabelChange={(id, label) => {
                   setCaptureFiles(prev => prev.map(cf =>
                     cf.id === id ? { ...cf, label } : cf
