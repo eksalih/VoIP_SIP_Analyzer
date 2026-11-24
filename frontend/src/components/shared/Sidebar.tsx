@@ -25,7 +25,7 @@ export default function Sidebar({ currentPage, onNavigate, allowedPages }: Props
   const [showPassword, setShowPassword] = useState(false);
   // Show the version the backend actually reports, so the badge can never drift
   // from the running build. Fallback is shown until /health answers (or if it fails).
-  const [version, setVersion] = useState("v2.2.0");
+  const [version, setVersion] = useState("v2.3.0");
   useEffect(() => {
     api.health().then((h) => h.version && setVersion(`v${h.version}`)).catch(() => {});
   }, []);

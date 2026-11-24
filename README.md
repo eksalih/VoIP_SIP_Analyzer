@@ -139,6 +139,27 @@ After startup:
 | Backend API       | http://localhost:8000      |
 | API Documentation | http://localhost:8000/docs |
 
+Sign in with the admin account. On the first start set `ADMIN_USERNAME` / `ADMIN_PASSWORD` in the root `.env`;
+if you leave the password empty, a random one is printed once in the backend log
+(`docker compose logs backend`).
+
+---
+
+## Live Capture (v2.3.0)
+
+Besides uploading PCAPs, the app can listen to a **SPAN/mirror port**, show calls as they happen,
+record the audio and keep everything in the same database. It is an optional extra container:
+
+```bash
+docker compose --profile capture up -d --build
+```
+
+Set `CAPTURE_INTERFACE` in the root `.env` to the network card cabled to the mirror port.
+Includes role-based access (admin / supervisor / user limited to their own extensions),
+an audit log of recording playback and downloads, and automatic retention of old recordings.
+
+See the full setup guide: [docs/LIVE_CAPTURE.md](docs/LIVE_CAPTURE.md).
+
 ---
 
 ## How It Works
@@ -217,6 +238,12 @@ The app can rebuild call audio from the RTP in uploaded captures and let you pla
 * WAV files are stored in `data/recordings` and are deleted when you delete a call, a capture file, or use **Clear All Data**.
 * Recording calls may carry legal obligations in your jurisdiction; only enable it for traffic you are permitted to record.
 
+### Live Capture and Accounts (v2.3.0)
+
+Live recording is on by default (`LIVE_RECORDING_ENABLED`), recordings are kept `RECORDINGS_RETENTION_DAYS`
+(default 180) and optionally limited to `RECORDINGS_MAX_GB`. Login settings: `ADMIN_USERNAME`,
+`ADMIN_PASSWORD`, `AUTH_SECRET`. All variables are listed in [docs/LIVE_CAPTURE.md](docs/LIVE_CAPTURE.md).
+
 ### Database
 
 Default:
@@ -277,6 +304,7 @@ or
 * TLS-encrypted SIP is not supported
 * SRTP media streams are not analyzed
 * Call audio reconstruction supports G.711 only
+* Live capture needs unencrypted SIP/RTP and a mirror port; see [docs/LIVE_CAPTURE.md](docs/LIVE_CAPTURE.md)
 * Upload limits can be configured through environment variables
 
 ---
@@ -287,7 +315,12 @@ Main API routes:
 
 | Method | Endpoint           | Purpose                  |
 | ------ | ------------------ | ------------------------ |
-| GET    | /health            | Health check             |
+| GET    | /health            | Health check (public)    |
+| POST   | /auth/login        | Sign in, returns a token |
+| GET    | /auth/me           | Current user             |
+| GET    | /capture/status    | Live capture status      |
+| GET/POST/PATCH/DELETE | /users | User management (admin) |
+| GET    | /audit             | Audit log (admin)        |
 | POST   | /upload-pcap       | Upload a capture         |
 | POST   | /upload-pcap/batch | Upload multiple captures |
 | GET    | /calls             | List detected calls      |
@@ -295,6 +328,8 @@ Main API routes:
 | GET    | /calls/{id}/audio  | Reconstructed call audio (WAV) |
 | GET    | /analytics         | Call statistics          |
 | POST   | /replay-test       | Validation testing       |
+
+All endpoints except `/health` and `/auth/login` need `Authorization: Bearer <token>`.
 
 Interactive API documentation:
 
