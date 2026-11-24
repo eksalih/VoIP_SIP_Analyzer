@@ -1,4 +1,4 @@
-import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile, AuthUser } from "../types";
+import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile, AuthUser, AdminUser, AuditEntry } from "../types";
 import { AUTH_EXPIRED_EVENT, getToken, setToken } from "./auth";
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -80,6 +80,28 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     }),
+
+  listUsers: () => apiFetch<AdminUser[]>("/users"),
+
+  createUser: (u: { username: string; password: string; display_name?: string; role: string; extensions: string[] }) =>
+    apiFetch<AdminUser>("/users", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(u),
+    }),
+
+  updateUser: (id: number, patch: { display_name?: string; role?: string; extensions?: string[]; is_active?: boolean; password?: string }) =>
+    apiFetch<AdminUser>(`/users/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+    }),
+
+  deleteUser: (id: number) => apiFetch<{ deleted: number }>(`/users/${id}`, { method: "DELETE" }),
+
+  getAudit: (params?: { action?: string; username?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.action) q.set("action", params.action);
+    if (params?.username) q.set("username", params.username);
+    q.set("limit", String(params?.limit ?? 200));
+    return apiFetch<AuditEntry[]>(`/audit?${q.toString()}`);
+  },
 
   me: () => apiFetch<AuthUser>("/auth/me"),
 

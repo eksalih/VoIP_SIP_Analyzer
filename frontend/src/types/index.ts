@@ -129,3 +129,18 @@ export interface AuthUser {
   extensions: string[];
   permissions: string[];
 }
+
+export interface AdminUser extends AuthUser {
+  is_active: boolean;
+  last_login: string | null;
+}
+
+export interface AuditEntry {
+  id: number;
+  timestamp: string | null;
+  username: string | null;
+  action: string;
+  call_id: number | null;
+  ip: string | null;
+  detail: string | null;
+}

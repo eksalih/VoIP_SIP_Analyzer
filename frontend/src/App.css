@@ -1111,3 +1111,10 @@ body {
 .sidebar-user { padding: 12px 20px; border-top: 1px solid var(--border); font-size: 13px; }
 .sidebar-user .role { color: var(--text-muted); font-size: 12px; text-transform: capitalize; }
 .sidebar-user button { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; margin-right: 12px; font-size: 12px; }
+
+/* ── Forms in dialogs (v2.3.0) ── */
+.form-box { max-width: 420px; }
+.form-body { display: flex; flex-direction: column; gap: 14px; padding: 16px; overflow-y: auto; }
+.form-body label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-muted); }
+.form-body .search-input { width: 100%; box-sizing: border-box; }
+.form-help { font-size: 12px; opacity: 0.8; }

@@ -4,6 +4,8 @@ import CallDetail from "./pages/CallDetail";
 import Analytics from "./pages/Analytics";
 import ReplayTest from "./pages/ReplayTest";
 import Login from "./pages/Login";
+import Users from "./pages/Users";
+import Audit from "./pages/Audit";
 import Sidebar from "./components/shared/Sidebar";
 import { api } from "./utils/api";
 import { AUTH_EXPIRED_EVENT, can, getToken, setToken } from "./utils/auth";
@@ -11,7 +13,7 @@ import { AuthContext } from "./utils/AuthContext";
 import type { AuthUser } from "./types";
 import "./App.css";
 
-export type Page = "dashboard" | "analytics" | "replay";
+export type Page = "dashboard" | "analytics" | "replay" | "users" | "audit";
 
 export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -49,6 +51,8 @@ export default function App() {
   const allowed: Page[] = ["dashboard"];
   if (can(user, "calls.view_all")) allowed.push("analytics");
   if (can(user, "analysis.use")) allowed.push("replay");
+  if (can(user, "users.manage")) allowed.push("users");
+  if (can(user, "audit.view")) allowed.push("audit");
   const current: Page = allowed.includes(page) ? page : "dashboard";
 
   return (
@@ -66,6 +70,10 @@ export default function App() {
           )}
           {current === "analytics" && <Analytics />}
           {current === "replay" && <ReplayTest />}
+          {current === "users" && <Users />}
+          {current === "audit" && (
+            <Audit onSelectCall={(id) => { setSelectedCallId(id); setPage("dashboard"); }} />
+          )}
         </main>
       </div>
     </AuthContext.Provider>

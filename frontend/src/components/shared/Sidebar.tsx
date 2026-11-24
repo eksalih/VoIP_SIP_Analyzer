@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Page } from "../../App";
 import { api } from "../../utils/api";
 import { useAuth } from "../../utils/AuthContext";
+import ChangePasswordDialog from "./ChangePasswordDialog";
 import "../../App.css";
 
 interface Props {
@@ -14,10 +15,13 @@ const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "dashboard", label: "Call Log",    icon: "📋" },
   { id: "analytics", label: "Analytics",  icon: "📊" },
   { id: "replay",    label: "Replay Test", icon: "🔁" },
+  { id: "users",     label: "Users",       icon: "👥" },
+  { id: "audit",     label: "Audit Log",   icon: "🛡" },
 ];
 
 export default function Sidebar({ currentPage, onNavigate, allowedPages }: Props) {
   const { user, logout } = useAuth();
+  const [showPassword, setShowPassword] = useState(false);
   // Show the version the backend actually reports, so the badge can never drift
   // from the running build. Fallback is shown until /health answers (or if it fails).
   const [version, setVersion] = useState("v2.2.0");
@@ -47,12 +51,14 @@ export default function Sidebar({ currentPage, onNavigate, allowedPages }: Props
         <div>{user.display_name || user.username}</div>
         <div className="role">{user.role}</div>
         <div style={{ marginTop: 6 }}>
+          <button onClick={() => setShowPassword(true)}>Change password</button>
           <button onClick={logout}>Sign out</button>
         </div>
       </div>
       <div className="sidebar-footer">
         <span className="version-badge">{version}</span>
       </div>
+      {showPassword && <ChangePasswordDialog onClose={() => setShowPassword(false)} />}
     </aside>
   );
 }
