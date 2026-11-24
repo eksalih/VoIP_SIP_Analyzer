@@ -62,7 +62,7 @@ async def _audit():
 class TestScoping:
     @pytest.mark.asyncio
     async def test_everything_requires_login(self, client):
-        for path in ("/calls", "/analytics", "/capture-files", "/export/csv"):
+        for path in ("/calls", "/analytics", "/capture-files", "/export/csv", "/capture/status"):
             assert (await client.get(path)).status_code == 401, path
         assert (await client.get("/health")).status_code == 200
 
@@ -93,7 +93,7 @@ class TestScoping:
     @pytest.mark.asyncio
     async def test_user_cannot_use_all_calls_features(self, client):
         h = await _h("sam")
-        for path in ("/analytics", "/capture-files", "/export/csv"):
+        for path in ("/analytics", "/capture-files", "/export/csv", "/capture/status"):
             assert (await client.get(path, headers=h)).status_code == 403, path
 
 

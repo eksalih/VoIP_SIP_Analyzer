@@ -22,6 +22,7 @@ from app.capture.call_tracker import LiveCallTracker, TrackerEvent
 from app.capture.live_store import LiveCallStore
 from app.capture.packet_source import PacketSource
 from app.capture.rtp_spool import RTPSpooler
+from app.capture.status import HEARTBEAT_SECONDS, write_status
 from app.core.rtp_analyzer import extract_sdp
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,8 @@ class CaptureService:
         )
         self.spooler = RTPSpooler(self.settings.spool_dir)
         self.run_id: Optional[int] = None
+        self.started_at = time.time()
+        self.status_file: Optional[str] = None   # None = default location
         self.stats = {"packets": 0, "calls_finalized": 0, "errors": 0}
         self._lock = asyncio.Lock()   # keeps packet handling and the timer from interleaving DB writes
         self._stop = False
@@ -84,6 +87,7 @@ class CaptureService:
     async def run(self) -> None:
         await self.store.recover_orphans()
         self.run_id = await self.store.start_run()
+        self._publish_status(running=True)
         ticker = asyncio.create_task(self._tick_loop()) if self.live else None
         iterator = iter(self.source)
         try:
@@ -104,12 +108,32 @@ class CaptureService:
                 await self._handle_all(self.tracker.flush())
                 self.spooler.close_all()
                 await self.store.end_run(self.run_id)
+                self._publish_status(running=False)
 
     async def _tick_loop(self) -> None:
+        last_status = 0.0
         while True:
             await asyncio.sleep(self.tick_seconds)
             async with self._lock:
                 await self._handle_all(self.tracker.advance(time.time()))
+            if time.time() - last_status >= HEARTBEAT_SECONDS:
+                last_status = time.time()
+                self._publish_status(running=True)
+
+    def _publish_status(self, running: bool) -> None:
+        write_status({
+            "running": running,
+            "interface": self.settings.interface,
+            "filter": self.settings.bpf_filter,
+            "recording_enabled": self.store.record_audio,
+            "started_at": self.started_at,
+            "run_id": self.run_id,
+            "packets": self.stats["packets"],
+            "dropped": getattr(self.source, "dropped", 0),
+            "open_calls": len(self.tracker.open_call_ids),
+            "calls_finalized": self.stats["calls_finalized"],
+            "errors": self.stats["errors"],
+        }, self.status_file)
 
     async def _handle_all(self, events: list[TrackerEvent]) -> None:
         for ev in events:

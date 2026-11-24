@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from app.db.database import init_db, AsyncSessionLocal
 from app.services.retention import retention_loop
-from app.api import calls, analytics, upload, health, replay, capture_files, export, auth, users
+from app.api import calls, analytics, upload, health, replay, capture_files, export, auth, users, capture
 
 
 @asynccontextmanager
@@ -40,6 +40,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(users.audit_router, prefix="/audit", tags=["Audit"])
+app.include_router(capture.router, prefix="/capture", tags=["Capture"],
+                   dependencies=[Depends(auth.require("calls.view_all"))])
 app.include_router(health.router, prefix="/health", tags=["Health"])
 app.include_router(upload.router, prefix="/upload-pcap", tags=["Upload"],
                    dependencies=[Depends(auth.require("analysis.use"))])
