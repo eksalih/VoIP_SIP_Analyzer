@@ -29,6 +29,7 @@ async def list_calls(
     search: Optional[str] = Query(None),
     capture_file_id: Optional[int] = Query(None, description="Filter to calls from a single uploaded capture file"),
     vendor: Optional[str] = Query(None, description="Filter to calls from a detected vendor, e.g. Yeastar"),
+    source: Optional[str] = Query(None, description="'live' (capture service) or 'upload' (PCAP file)"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require("calls.view_all", "calls.view_own")),
 ):
@@ -46,6 +47,9 @@ async def list_calls(
 
     if vendor:
         q = q.where(Call.vendor == vendor)
+
+    if source:
+        q = q.where(Call.source == source)
 
     if search:
         q = q.where(

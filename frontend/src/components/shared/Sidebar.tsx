@@ -13,6 +13,7 @@ interface Props {
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "dashboard", label: "Call Log",    icon: "📋" },
+  { id: "live",      label: "Live Calls",  icon: "🔴" },
   { id: "analytics", label: "Analytics",  icon: "📊" },
   { id: "replay",    label: "Replay Test", icon: "🔁" },
   { id: "users",     label: "Users",       icon: "👥" },

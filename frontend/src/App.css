@@ -1118,3 +1118,11 @@ body {
 .form-body label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-muted); }
 .form-body .search-input { width: 100%; box-sizing: border-box; }
 .form-help { font-size: 12px; opacity: 0.8; }
+
+/* ── Live calls (v2.3.0) ── */
+.live-banner { padding: 10px 14px; border-radius: var(--radius); margin-bottom: 16px; font-size: 13px; border: 1px solid var(--border); }
+.live-banner.ok { color: #3fb950; background: #1a2e1a; }
+.live-banner.bad { color: #d29922; background: #2e2208; }
+.live-warn { color: #d29922; }
+.live-heading { margin: 20px 0 8px; font-size: 14px; color: var(--text-muted); }
+.live-stage { color: #00acc1; font-weight: 600; }

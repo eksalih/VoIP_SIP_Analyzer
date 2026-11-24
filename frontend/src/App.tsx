@@ -4,6 +4,7 @@ import CallDetail from "./pages/CallDetail";
 import Analytics from "./pages/Analytics";
 import ReplayTest from "./pages/ReplayTest";
 import Login from "./pages/Login";
+import LiveCalls from "./pages/LiveCalls";
 import Users from "./pages/Users";
 import Audit from "./pages/Audit";
 import Sidebar from "./components/shared/Sidebar";
@@ -13,7 +14,7 @@ import { AuthContext } from "./utils/AuthContext";
 import type { AuthUser } from "./types";
 import "./App.css";
 
-export type Page = "dashboard" | "analytics" | "replay" | "users" | "audit";
+export type Page = "dashboard" | "live" | "analytics" | "replay" | "users" | "audit";
 
 export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -48,7 +49,7 @@ export default function App() {
   }
 
   // Pages a role may not use are never offered; fall back to the call log.
-  const allowed: Page[] = ["dashboard"];
+  const allowed: Page[] = ["dashboard", "live"];
   if (can(user, "calls.view_all")) allowed.push("analytics");
   if (can(user, "analysis.use")) allowed.push("replay");
   if (can(user, "users.manage")) allowed.push("users");
@@ -66,6 +67,10 @@ export default function App() {
         <main className="app-main">
           {current === "dashboard" && selectedCallId === null && <Dashboard onSelectCall={setSelectedCallId} />}
           {current === "dashboard" && selectedCallId !== null && (
+            <CallDetail callId={selectedCallId} onBack={() => setSelectedCallId(null)} />
+          )}
+          {current === "live" && selectedCallId === null && <LiveCalls onSelectCall={setSelectedCallId} />}
+          {current === "live" && selectedCallId !== null && (
             <CallDetail callId={selectedCallId} onBack={() => setSelectedCallId(null)} />
           )}
           {current === "analytics" && <Analytics />}

@@ -144,3 +144,16 @@ export interface AuditEntry {
   ip: string | null;
   detail: string | null;
 }
+
+export interface CaptureStatus {
+  state: "running" | "stopped" | "stale" | "not_configured";
+  interface?: string;
+  filter?: string;
+  recording_enabled?: boolean;
+  packets?: number;
+  dropped?: number;
+  open_calls?: number;
+  calls_finalized?: number;
+  errors?: number;
+  age_seconds?: number;
+}

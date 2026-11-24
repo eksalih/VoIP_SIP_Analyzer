@@ -142,3 +142,17 @@ class TestAdminOnly:
     async def test_login_attempts_are_audited(self, client):
         await client.post("/auth/login", json={"username": "root", "password": "wrong"})
         assert ("root", "login_failed", None) in await _audit()
+
+
+class TestLiveListing:
+    @pytest.mark.asyncio
+    async def test_source_filter_with_scoping_and_in_progress(self, client):
+        async with AsyncSessionLocal() as db:
+            db.add(Call(call_id="L1", caller="1001", called="2001", status=CallStatus.IN_PROGRESS, source="live"))
+            db.add(Call(call_id="L2", caller="2001", called="2002", status=CallStatus.IN_PROGRESS, source="live"))
+            await db.commit()
+        sam = (await client.get("/calls?source=live&status=IN_PROGRESS", headers=await _h("sam"))).json()
+        assert [c["call_id"] for c in sam] == ["L1"]            # own extension only
+        root = (await client.get("/calls?source=live&status=IN_PROGRESS", headers=await _h("root"))).json()
+        assert sorted(c["call_id"] for c in root) == ["L1", "L2"]
+        assert (await client.get("/calls?source=upload", headers=await _h("root"))).json()[0]["source"] == "upload"

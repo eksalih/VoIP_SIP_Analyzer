@@ -1,4 +1,4 @@
-import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile, AuthUser, AdminUser, AuditEntry } from "../types";
+import type { Call, Analytics, UploadResult, BatchUploadResult, CaptureFile, AuthUser, AdminUser, AuditEntry, CaptureStatus } from "../types";
 import { AUTH_EXPIRED_EVENT, getToken, setToken } from "./auth";
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -23,15 +23,18 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getCalls: (params?: { status?: string; search?: string; limit?: number; captureFileId?: number; vendor?: string }) => {
+  getCalls: (params?: { status?: string; search?: string; limit?: number; captureFileId?: number; vendor?: string; source?: string }) => {
     const q = new URLSearchParams();
     if (params?.status) q.set("status", params.status);
     if (params?.search) q.set("search", params.search);
     if (params?.limit) q.set("limit", String(params.limit));
     if (params?.captureFileId) q.set("capture_file_id", String(params.captureFileId));
     if (params?.vendor) q.set("vendor", params.vendor);
+    if (params?.source) q.set("source", params.source);
     return apiFetch<Call[]>(`/calls?${q.toString()}`);
   },
+
+  getCaptureStatus: () => apiFetch<CaptureStatus>("/capture/status"),
 
   getCall: (id: number) => apiFetch<Call>(`/calls/${id}`),
 
