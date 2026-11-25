@@ -162,7 +162,7 @@ or, to run without Docker:
 * Python 3.11+
 * Node.js 18+
 
-For live monitoring: a second network card for the mirror port and an SSD for recordings. A Raspberry Pi 5 or a small x86 PC with 8 GB RAM is enough for about 10 simultaneous calls. Recording uses roughly 115 MB per hour of call audio.
+For live monitoring: a **Linux** machine (Docker Desktop on Windows or macOS cannot reach the physical network cards), a second network card for the mirror port and an SSD for recordings. A Raspberry Pi 5 or a small x86 PC with 8 GB RAM is enough for about 10 simultaneous calls. Recording uses roughly 115 MB per hour of call audio.
 
 ---
 
@@ -170,7 +170,7 @@ For live monitoring: a second network card for the mirror port and an SSD for re
 
 * SIP and RTP must be unencrypted. TLS and SRTP calls cannot be analyzed or recorded
 * Audio recording supports the G.711 codec (PCMU/PCMA) only
-* Live monitoring needs a switch with port mirroring
+* Live monitoring needs a Linux host and a switch with port mirroring. Uploading and analyzing PCAP files works on any system
 
 ---
 

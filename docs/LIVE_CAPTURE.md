@@ -15,7 +15,7 @@ PCAPs. Your PBX and phones are not touched and do not know it is there.
 
 ## 1. What you need
 
-* A machine running Docker with a **second network card** dedicated to the mirror port
+* A **Linux** machine running Docker (Docker Desktop on Windows or macOS only sees its own virtual network, not your network cards) with a **second network card** dedicated to the mirror port
   (the first stays for the web UI). A Raspberry Pi 5 (arm64) or an x86 mini-PC with 8 GB RAM
   is enough for roughly 10 simultaneous calls.
 * A switch that supports port mirroring (SPAN).
@@ -128,6 +128,9 @@ Every recording play and download, deletion and login is written to the **Audit 
 | `AUTH_SECRET` | generated | Signing key for login tokens |
 
 ## 8. Troubleshooting
+
+**Banner says "Capture cannot start: Network interface '...' does not exist".**
+The name in `CAPTURE_INTERFACE` is not a network card inside the container; the message lists the names that exist. On Windows or macOS (Docker Desktop) no physical card is visible, so run live capture on a Linux machine.
 
 **Banner says "not set up" or "stopped reporting".**
 Check the service: `docker compose --profile capture ps` and `docker compose logs capture`.
