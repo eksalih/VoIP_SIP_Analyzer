@@ -21,6 +21,9 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
+      - name: Install libpcap (used by live capture)
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
       - name: Install dependencies
         working-directory: backend
         run: pip install -r requirements.txt
@@ -46,7 +49,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: frontend/package.json
 

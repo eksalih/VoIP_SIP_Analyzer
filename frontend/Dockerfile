@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 
 # Vite bakes environment variables into the JS bundle at BUILD time, not
 # runtime, so this must be a build arg rather than a regular ENV var.

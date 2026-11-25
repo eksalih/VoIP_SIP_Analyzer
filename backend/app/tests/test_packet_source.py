@@ -91,15 +91,18 @@ class TestPcapReplaySource:
 
 
 def _can_sniff_loopback() -> bool:
+    """Needs raw-socket permission AND libpcap (Scapy compiles the capture filter with it)."""
     try:
         s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
         s.close()
+        from scapy.arch.common import compile_filter
+        compile_filter("udp", "lo")
         return True
-    except (AttributeError, PermissionError, OSError):
+    except Exception:
         return False
 
 
-@pytest.mark.skipif(not _can_sniff_loopback(), reason="raw sockets not permitted here")
+@pytest.mark.skipif(not _can_sniff_loopback(), reason="raw sockets or libpcap not available here")
 class TestLiveInterfaceSource:
     def test_captures_udp_sent_over_loopback(self):
         source = LiveInterfaceSource("lo", bpf_filter="udp port 45061")
