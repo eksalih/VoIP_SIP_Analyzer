@@ -24,6 +24,7 @@ function StatusBanner({ s }: { s: CaptureStatus }) {
       </div>
     );
   }
+  if (s.error) return <div className="live-banner bad">⚠ Capture cannot start: {s.error}</div>;
   const text: Record<string, string> = {
     stale: "The capture service has stopped reporting. Check that the capture container is running.",
     stopped: "The capture service is stopped.",

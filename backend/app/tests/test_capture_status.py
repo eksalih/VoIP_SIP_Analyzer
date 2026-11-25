@@ -68,3 +68,21 @@ class TestStatusEndpoint:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             body = (await c.get("/capture/status")).json()   # default test user is admin
         assert body["state"] == "running" and body["interface"] == "eth1"
+
+
+class TestBadInterface:
+    @pytest.mark.asyncio
+    async def test_missing_interface_reports_reason_and_exits_nonzero(self, monkeypatch):
+        import app.capture.__main__ as m
+        from app.capture.service import CaptureSettings
+
+        monkeypatch.setattr(m, "init_db", lambda: _noop())
+        rc = await m.amain(CaptureSettings(interface="Ethernet3"), config_error_delay=0)
+        assert rc == 2
+        status = read_status()
+        assert status["state"] == "stopped" and "Ethernet3" in status["error"]
+        assert "Linux host" in status["error"]
+
+
+async def _noop():
+    return None

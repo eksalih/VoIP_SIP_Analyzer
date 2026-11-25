@@ -12,6 +12,7 @@ import sys
 from app.capture.live_store import LiveCallStore
 from app.capture.packet_source import LiveInterfaceSource
 from app.capture.service import CaptureService, CaptureSettings
+from app.capture.status import write_status
 from app.db.database import AsyncSessionLocal, init_db
 
 logger = logging.getLogger("app.capture")
@@ -23,8 +24,32 @@ RECORDING_NOTICE = (
 )
 
 
-async def amain(settings: CaptureSettings) -> int:
+def check_interface(name: str) -> str | None:
+    """Return a helpful error text if the interface does not exist here, else None."""
+    from scapy.all import get_if_list
+
+    available = get_if_list()
+    if name in available:
+        return None
+    return (
+        f"Network interface '{name}' does not exist inside this container. "
+        f"Available here: {', '.join(available) or 'none'}. "
+        "Set CAPTURE_INTERFACE to one of these. Live capture needs a Linux host: "
+        "Docker Desktop on Windows or macOS only exposes its own virtual network, "
+        "not the computer's physical network cards."
+    )
+
+
+async def amain(settings: CaptureSettings, config_error_delay: float = 30.0) -> int:
     await init_db()
+    problem = check_interface(settings.interface)
+    if problem:
+        logger.error(problem)
+        # Show the reason in the web UI, and wait before exiting so Docker's automatic
+        # restart does not turn a configuration mistake into a rapid restart loop.
+        write_status({"running": False, "interface": settings.interface, "error": problem})
+        await asyncio.sleep(config_error_delay)
+        return 2
     if settings.record_audio:
         logger.warning(RECORDING_NOTICE)
 

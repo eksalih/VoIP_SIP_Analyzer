@@ -148,6 +148,7 @@ export interface AuditEntry {
 export interface CaptureStatus {
   state: "running" | "stopped" | "stale" | "not_configured";
   interface?: string;
+  error?: string;
   filter?: string;
   recording_enabled?: boolean;
   packets?: number;
